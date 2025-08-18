@@ -3,9 +3,9 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 from modules.energie import get_battery_status as get_power_status
+from modules.gps_reader import get_gps_position
+from modules.motors import handle_movement
 
-from data.gps_reader import get_gps_position
-from data.motors import handle_movement
 
 # Chargement du token
 TOKEN_PATH = os.path.join(os.path.dirname(__file__), "token.txt")

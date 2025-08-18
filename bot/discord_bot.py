@@ -88,3 +88,6 @@ async def on_message(message):
             os.system("sudo reboot")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"❌ Erreur lors du `git pull` :\n```{e.output}```")
+
+def run():
+    client.run(TOKEN)

@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from modules.energie import get_battery_status as get_power_status
 from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
+import subprocess
 
 # Token
 with open("bot/token.txt", "r") as f:
@@ -74,5 +75,16 @@ async def on_message(message):
 
     elif cmd == "REBOOT":
         await message.channel.send("🔄 Redémarrage du Rover...")
-        await asyncio.sleep(2)  # un petit délai pour laisser le message partir
+        await asyncio.sleep(2)
         os.system("sudo reboot")
+
+    elif cmd == "UPDATE":
+        await message.channel.send("📡 Mise à jour en cours via Git...")
+        try:
+            result = subprocess.check_output("cd ~/rover && git pull", shell=True, stderr=subprocess.STDOUT, text=True)
+            await message.channel.send(f"✅ Mise à jour terminée :\n```{result}```")
+            await message.channel.send("🔄 Redémarrage du Rover...")
+            await asyncio.sleep(2)
+            os.system("sudo reboot")
+        except subprocess.CalledProcessError as e:
+            await message.channel.send(f"❌ Erreur lors du `git pull` :\n```{e.output}```")

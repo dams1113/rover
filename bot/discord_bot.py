@@ -1,13 +1,13 @@
 import discord
 import asyncio
 import os
-from datetime import datetime, timedelta
+import subprocess
+from datetime import datetime
 from modules.energie import get_battery_status as get_power_status
 from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
-import subprocess
 
-# Token
+# Chargement du token
 with open("bot/token.txt", "r") as f:
     TOKEN = f.read().strip()
 
@@ -20,6 +20,13 @@ last_mission_start = None
 last_mission_end = None
 last_voltages = []
 last_currents = []
+
+def get_cpu_temp():
+    try:
+        output = subprocess.check_output(["vcgencmd", "measure_temp"]).decode()
+        return float(output.replace("temp=", "").replace("'C\n", ""))
+    except Exception:
+        return "N/A"
 
 @client.event
 async def on_ready():
@@ -50,10 +57,13 @@ async def on_message(message):
         else:
             gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
 
+        cpu_temp = get_cpu_temp()
+
         if last_mission_start and last_mission_end:
             mission_duration = last_mission_end - last_mission_start
+            mission_info = f"{mission_duration} (de {last_mission_start.strftime('%H:%M:%S')} à {last_mission_end.strftime('%H:%M:%S')})"
         else:
-            mission_duration = "N/A"
+            mission_info = "N/A"
 
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
@@ -61,7 +71,8 @@ async def on_message(message):
         response = f"""🤖 État du Rover
 🔋 Tension actuelle : {voltage} V
 🔌 Courant actuel : {current} A
-🕒 Dernière mission : {mission_duration}
+🌡️ Température CPU : {cpu_temp} °C
+🕒 Dernière mission : {mission_info}
 🔋 Moyenne : {avg_voltage}V / {avg_current}A
 {gps_str}
 """

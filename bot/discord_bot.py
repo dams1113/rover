@@ -2,13 +2,13 @@ import discord
 import asyncio
 import os
 import subprocess
-from datetime import datetime
+import psutil
+from datetime import datetime, timedelta
 from modules.energie import get_battery_status as get_power_status
 from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
-import psutil
 
-# Chargement du token
+# Token
 with open("bot/token.txt", "r") as f:
     TOKEN = f.read().strip()
 
@@ -16,41 +16,45 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+# Variables de mission
 start_time = datetime.now()
 last_mission_start = None
 last_mission_end = None
 last_voltages = []
 last_currents = []
 
-def get_cpu_temp():
-    try:
-        output = subprocess.check_output(["vcgencmd", "measure_temp"]).decode()
-        return float(output.replace("temp=", "").replace("'C\n", ""))
-    except Exception:
-        return "N/A"
-
-def get_cpu_usage():
-    try:
-        return psutil.cpu_percent(interval=1)
-    except Exception:
-        return "N/A"
+CHANNEL_ID = TON_CHANNEL_ID  # 👈 Remplace par ton ID de salon
 
 @client.event
 async def on_ready():
     print(f"[ROVER] Connecté en tant que {client.user}")
+    channel = client.get_channel(CHANNEL_ID)
+
+    # Récupération du commit git
+    try:
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(__file__) + "/.."
+        ).decode("utf-8").strip()
+    except Exception:
+        commit_hash = "inconnu"
+
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = f"👋 Rover en ligne sur `main@{commit_hash}` – démarré le {now}"
+    if channel:
+        await channel.send(message)
 
 @client.event
 async def on_message(message):
     global last_mission_start, last_mission_end
 
-    if message.author == client.user:
+    if message.author == client.user or message.channel.id != CHANNEL_ID:
         return
 
     cmd = message.content.strip().upper()
 
     if cmd == "STATUS":
         uptime = datetime.now() - start_time
-
         power = get_power_status()
         voltage = power.get("voltage", "N/A")
         current = power.get("current", "N/A")
@@ -58,31 +62,33 @@ async def on_message(message):
         last_voltages.append(voltage)
         last_currents.append(current)
 
-        gps = get_gps_position()
-        if "error" in gps:
-            gps_str = f"📍 GPS : {gps['error']}"
-        else:
-            gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
-
-        cpu_temp = get_cpu_temp()
-        cpu_usage = get_cpu_usage()
-
-        if last_mission_start and last_mission_end:
-            mission_duration = last_mission_end - last_mission_start
-            mission_info = f"{mission_duration} (de {last_mission_start.strftime('%H:%M:%S')} à {last_mission_end.strftime('%H:%M:%S')})"
-        else:
-            mission_info = "N/A"
-
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
 
-        response = f"""🤖 État du Rover
+        gps = get_gps_position()
+        gps_str = f"📍 GPS : {gps['error']}" if "error" in gps else f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
+
+        mission_duration = (
+            last_mission_end - last_mission_start if last_mission_start and last_mission_end else "N/A"
+        )
+
+        # CPU temp & usage
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                temp = round(int(f.read()) / 1000, 1)
+        except Exception:
+            temp = "N/A"
+
+        cpu_percent = psutil.cpu_percent(interval=1)
+
+        response = f"""🤖 **État du Rover**
 🔋 Tension actuelle : {voltage} V
 🔌 Courant actuel : {current} A
-🌡️ Température CPU : {cpu_temp} °C
-🧠 Charge CPU : {cpu_usage} %
-🕒 Dernière mission : {mission_info}
-🔋 Moyenne : {avg_voltage}V / {avg_current}A
+📊 Moyenne : {avg_voltage}V / {avg_current}A
+🌡️ Température CPU : {temp}°C
+🧠 Utilisation CPU : {cpu_percent}%
+🕒 Uptime : {str(uptime).split('.')[0]}
+🚗 Dernière mission : {mission_duration}
 {gps_str}
 """
         await message.channel.send(response)
@@ -109,5 +115,6 @@ async def on_message(message):
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"❌ Erreur lors du `git pull` :\n```{e.output}```")
 
+# Lancement du bot
 def run():
     client.run(TOKEN)

@@ -13,7 +13,7 @@ with open("bot/token.txt", "r") as f:
     TOKEN = f.read().strip()
 
 # Remplacer par l’ID réel de ton salon
-CHANNEL_ID = 1398325400475537462 # 👈 remplace-moi par ton vrai salon Discord
+CHANNEL_ID = 1398325400475537462
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -38,8 +38,18 @@ def get_cpu_temperature():
     except:
         return "N/A"
 
-def get_uptime():
-    return datetime.now() - start_time
+def format_uptime():
+    delta = datetime.now() - start_time
+    seconds = int(delta.total_seconds())
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    elif minutes > 0:
+        return f"{minutes}m {seconds}s"
+    else:
+        return f"{seconds}s"
 
 @client.event
 async def on_ready():
@@ -61,7 +71,7 @@ async def on_message(message):
     cmd = message.content.strip().upper()
 
     if cmd == "STATUS":
-        uptime = get_uptime()
+        uptime_str = format_uptime()
         power = get_power_status()
         voltage = power.get("voltage", "N/A")
         current = power.get("current", "N/A")
@@ -89,7 +99,7 @@ async def on_message(message):
         response = f"""🤖 **État du Rover**
 🔋 Tension actuelle : {voltage} V
 🔌 Courant actuel : {current} A
-🕒 Durée depuis allumage : {uptime}
+🕒 Durée depuis allumage : {uptime_str}
 📊 Dernière mission : {mission_duration}
 🔋 Moyenne : {avg_voltage}V / {avg_current}A
 🌡 Température CPU : {temp_cpu}°C

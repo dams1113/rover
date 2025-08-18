@@ -23,7 +23,8 @@ last_mission_end = None
 last_voltages = []
 last_currents = []
 
-CHANNEL_ID = TON_CHANNEL_ID  # 👈 Remplace par ton ID de salon
+CHANNEL_ID = 123456789012345678
+
 
 @client.event
 async def on_ready():

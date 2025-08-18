@@ -3,7 +3,7 @@ import asyncio
 import os
 from datetime import datetime, timedelta
 from modules.energie import get_battery_status as get_power_status
-from modules.gps_reader import get_gps_position
+from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
 
 

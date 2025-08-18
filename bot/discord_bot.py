@@ -23,7 +23,8 @@ last_mission_end = None
 last_voltages = []
 last_currents = []
 
-CHANNEL_ID = 123456789012345678
+CHANNEL_ID = None 
+
 
 
 @client.event

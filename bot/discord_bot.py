@@ -6,6 +6,7 @@ from datetime import datetime
 from modules.energie import get_battery_status as get_power_status
 from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
+import psutil
 
 # Chargement du token
 with open("bot/token.txt", "r") as f:
@@ -25,6 +26,12 @@ def get_cpu_temp():
     try:
         output = subprocess.check_output(["vcgencmd", "measure_temp"]).decode()
         return float(output.replace("temp=", "").replace("'C\n", ""))
+    except Exception:
+        return "N/A"
+
+def get_cpu_usage():
+    try:
+        return psutil.cpu_percent(interval=1)
     except Exception:
         return "N/A"
 
@@ -58,6 +65,7 @@ async def on_message(message):
             gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
 
         cpu_temp = get_cpu_temp()
+        cpu_usage = get_cpu_usage()
 
         if last_mission_start and last_mission_end:
             mission_duration = last_mission_end - last_mission_start
@@ -72,6 +80,7 @@ async def on_message(message):
 🔋 Tension actuelle : {voltage} V
 🔌 Courant actuel : {current} A
 🌡️ Température CPU : {cpu_temp} °C
+🧠 Charge CPU : {cpu_usage} %
 🕒 Dernière mission : {mission_info}
 🔋 Moyenne : {avg_voltage}V / {avg_current}A
 {gps_str}

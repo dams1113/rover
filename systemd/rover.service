@@ -1,0 +1,14 @@
+[Unit]
+Description=Rover Discord Bot
+After=network.target
+
+[Service]
+ExecStart=/home/pi/rover/.venv/bin/python /home/pi/rover/main.py
+WorkingDirectory=/home/pi/rover
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target

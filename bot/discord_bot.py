@@ -36,7 +36,6 @@ async def on_message(message):
     if cmd == "STATUS":
         uptime = datetime.now() - start_time
 
-        # Lecture énergie
         power = get_power_status()
         voltage = power.get("voltage", "N/A")
         current = power.get("current", "N/A")
@@ -44,20 +43,17 @@ async def on_message(message):
         last_voltages.append(voltage)
         last_currents.append(current)
 
-        # GPS
         gps = get_gps_position()
         if "error" in gps:
             gps_str = f"📍 GPS : {gps['error']}"
         else:
             gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
 
-        # Durée de la dernière mission
         if last_mission_start and last_mission_end:
             mission_duration = last_mission_end - last_mission_start
         else:
             mission_duration = "N/A"
 
-        # Moyenne tension/courant
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
 
@@ -75,3 +71,8 @@ async def on_message(message):
         handle_movement(cmd)
         await message.channel.send(f"[ROVER] Commande reçue : {cmd}")
         last_mission_end = datetime.now()
+
+    elif cmd == "REBOOT":
+        await message.channel.send("🔄 Redémarrage du Rover...")
+        await asyncio.sleep(2)  # un petit délai pour laisser le message partir
+        os.system("sudo reboot")

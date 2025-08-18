@@ -2,7 +2,7 @@ import discord
 import asyncio
 import os
 from datetime import datetime, timedelta
-from data.ina219_reader import get_power_status
+from modules.energie import get_power_status
 from data.gps_reader import get_gps_position
 from data.motors import handle_movement
 

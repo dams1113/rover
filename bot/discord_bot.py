@@ -1,119 +1,90 @@
 import discord
 import asyncio
-import socket
-import psutil
-import time
+import os
+from datetime import datetime, timedelta
+from data.ina219_reader import get_power_status
+from data.gps_reader import get_gps_position
+from data.motors import handle_movement
 
-from modules import gps, energie, moteurs, radio
-
-# Charger le token
-with open("bot/token.txt", "r") as f:
+# Chargement du token
+TOKEN_PATH = os.path.join(os.path.dirname(__file__), "token.txt")
+with open(TOKEN_PATH, "r") as f:
     TOKEN = f.read().strip()
 
-CHANNEL_ID = 1398325400475537462
+CHANNEL_ID = None  # Si tu veux le limiter à un salon précis, mets l’ID ici
 
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# Température CPU
-def get_cpu_temp():
-    try:
-        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-            temp_str = f.read().strip()
-            return round(int(temp_str) / 1000.0, 1)
-    except:
-        return "N/A"
+# Suivi de mission
+mission_start_time = None
+mission_energy_log = []
+last_mission_duration = None
+last_mission_voltage_avg = None
+last_mission_current_avg = None
 
-# Adresse IP réelle
-def get_ip():
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except:
-        return "N/A"
+def reset_mission_stats():
+    global mission_start_time, mission_energy_log
+    mission_start_time = datetime.now()
+    mission_energy_log = []
 
-# Génère le message complet d’état du rover
-def get_etat_rover():
-    energie_data = energie.get_battery_status()
-    gps_data = gps.get_gps_data()
+def close_mission():
+    global last_mission_duration, last_mission_voltage_avg, last_mission_current_avg
+    if mission_start_time is None:
+        return
+    duration = datetime.now() - mission_start_time
+    last_mission_duration = duration
 
-    ip = get_ip()
-    cpu = psutil.cpu_percent()
-    temp = get_cpu_temp()
-    uptime = time.strftime("%Hh%Mm", time.gmtime(time.time() - psutil.boot_time()))
-
-    if isinstance(gps_data, dict) and "latitude" in gps_data:
-        gps_msg = (
-            f"📍 Latitude : {gps_data['latitude']}°\n"
-            f"📍 Longitude : {gps_data['longitude']}°\n"
-            f"📏 Altitude : {gps_data['altitude']} m\n"
-            f"📡 Satellites : {gps_data['satellites']} | Fix : {gps_data['fix']}"
-        )
-    elif "error" in gps_data:
-        gps_msg = f"❌ GPS : {gps_data['error']}"
+    if mission_energy_log:
+        voltages = [v for v, _ in mission_energy_log]
+        currents = [c for _, c in mission_energy_log]
+        last_mission_voltage_avg = round(sum(voltages) / len(voltages), 2)
+        last_mission_current_avg = round(sum(currents) / len(currents), 2)
     else:
-        gps_msg = "❌ GPS : données non valides"
-
-    message = (
-        f"📡 **État du Rover**\n"
-        f"🔋 Tension : {energie_data['voltage']} V | Courant : {energie_data['current']} A\n"
-        f"{gps_msg}\n"
-        f"🧠 CPU : {cpu}% | 🌡️ Temp : {temp}°C\n"
-        f"🕐 Uptime : {uptime} | 🌐 IP : {ip}"
-    )
-    return message
+        last_mission_voltage_avg = "N/A"
+        last_mission_current_avg = "N/A"
 
 @client.event
 async def on_ready():
-    print(f"[BOT] Connecté en tant que {client.user}")
-    if not hasattr(client, 'etat_task'):
-        client.etat_task = client.loop.create_task(envoyer_etat_recurrent())
+    print(f"[Rover] Connecté en tant que {client.user}")
 
 @client.event
 async def on_message(message):
-    if message.channel.id != CHANNEL_ID or message.author == client.user:
+    global mission_start_time, mission_energy_log
+    if message.author == client.user:
+        return
+    if CHANNEL_ID and message.channel.id != CHANNEL_ID:
         return
 
     cmd = message.content.strip().upper()
 
     if cmd == "STATUS":
-        msg = get_etat_rover()
-        await message.channel.send(msg)
-    elif cmd == "AVANCE":
-        moteurs.avance()
-        await message.channel.send("🚗 Avance")
-    elif cmd == "RECULE":
-        moteurs.recule()
-        await message.channel.send("🔙 Recule")
+        voltage, current = get_power_status()
+        gps = get_gps_position()
+        gps_str = gps if gps else "📍 GPS : Non disponible"
+        duration_str = str(last_mission_duration) if last_mission_duration else "Inconnue"
+        v_str = f"{last_mission_voltage_avg}V" if last_mission_voltage_avg else "N/A"
+        c_str = f"{last_mission_current_avg}A" if last_mission_current_avg else "N/A"
+
+        response = f"""🤖 **État du Rover**
+🔋 Tension actuelle : {voltage:.2f} V
+🔌 Courant actuel : {current:.2f} A
+🕒 Dernière mission : {duration_str}
+🔋 Moyenne : {v_str} / {c_str}
+{gps_str}
+"""
+        await message.channel.send(response)
+
+    elif cmd in ["AVANCE", "RECULE", "GAUCHE", "DROITE"]:
+        await message.channel.send(f"▶️ Rover : {cmd.lower()}")
+        handle_movement(cmd)
+        reset_mission_stats()
+
     elif cmd == "STOP":
-        moteurs.stop()
-        await message.channel.send("⛔ Stop")
-    elif cmd == "GPS":
-        gps_info = get_etat_rover().split('\n')[2:6]
-        await message.channel.send("📍 GPS :\n" + '\n'.join(gps_info))
-    elif cmd == "ENERGIE":
-        data = energie.get_battery_status()
-        await message.channel.send(f"🔋 Tension : {data['voltage']} V | Courant : {data['current']} A")
-    elif cmd == "RADIO":
-        msg = radio.ecouter_radio()
-        await message.channel.send(f"📡 Radio : {msg}")
-
-async def envoyer_etat_recurrent():
-    await client.wait_until_ready()
-    canal = client.get_channel(CHANNEL_ID)
-
-    while not client.is_closed():
-        try:
-            message = get_etat_rover()
-            await canal.send(message)
-        except Exception as e:
-            print(f"[ERREUR envoi état] {e}")
-
-        await asyncio.sleep(3 * 3600)  # ⏱️ toutes les 3h
+        await message.channel.send("⛔ Mission terminée")
+        handle_movement("STOP")
+        close_mission()
 
 def run():
     client.run(TOKEN)

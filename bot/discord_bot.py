@@ -3,17 +3,19 @@ import asyncio
 import os
 import subprocess
 import psutil
-from datetime import datetime
-from modules.energie import get_battery_status as get_power_status
+from datetime import datetime, timedelta
+from modules.energie import (
+    get_battery_status as get_power_status,
+    get_power_estimate
+)
 from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
 
-# Lire le token
+# Token
 with open("bot/token.txt", "r") as f:
     TOKEN = f.read().strip()
 
-# Remplacer par l’ID réel de ton salon
-CHANNEL_ID = 1398325400475537462
+CHANNEL_ID = 1398325400475537462  # Ton ID de salon Discord
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -24,6 +26,8 @@ last_mission_start = None
 last_mission_end = None
 last_voltages = []
 last_currents = []
+
+BOOT_TIME_FILE = "last_shutdown.txt"
 
 def get_git_commit_hash():
     try:
@@ -38,32 +42,31 @@ def get_cpu_temperature():
     except:
         return "N/A"
 
-def format_uptime():
-    delta = datetime.now() - start_time
-    seconds = int(delta.total_seconds())
-    hours, remainder = divmod(seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-
-    if hours > 0:
-        return f"{hours}h {minutes}m"
-    elif minutes > 0:
-        return f"{minutes}m {seconds}s"
-    else:
-        return f"{seconds}s"
+def get_last_session_duration():
+    if not os.path.exists(BOOT_TIME_FILE):
+        return "Inconnue"
+    try:
+        with open(BOOT_TIME_FILE, "r") as f:
+            last_shutdown_str = f.read().strip()
+        last_shutdown = datetime.fromisoformat(last_shutdown_str)
+        return str(timedelta(seconds=int((last_shutdown - last_boot_time).total_seconds())))
+    except:
+        return "Inconnue"
 
 @client.event
 async def on_ready():
     print(f"[ROVER] Connecté en tant que {client.user}")
+    global last_boot_time
+    last_boot_time = datetime.now()
     commit = get_git_commit_hash()
+    session_duration = get_last_session_duration()
     channel = client.get_channel(CHANNEL_ID)
     if channel:
-        await channel.send(f"✅ Rover en ligne – version `{commit}`")
+        await channel.send(f"✅ Rover en ligne – version `{commit}`\n⏱ Dernière session : {session_duration}")
 
 @client.event
 async def on_message(message):
     global last_mission_start, last_mission_end
-
-    print(f"[DEBUG] Message reçu : {message.content} dans salon {message.channel.id}")
 
     if message.channel.id != CHANNEL_ID or message.author == client.user:
         return
@@ -71,7 +74,7 @@ async def on_message(message):
     cmd = message.content.strip().upper()
 
     if cmd == "STATUS":
-        uptime_str = format_uptime()
+        uptime = datetime.now() - start_time
         power = get_power_status()
         voltage = power.get("voltage", "N/A")
         current = power.get("current", "N/A")
@@ -80,26 +83,24 @@ async def on_message(message):
         last_currents.append(current)
 
         gps = get_gps_position()
-        if "error" in gps:
-            gps_str = f"📍 GPS : {gps['error']}"
-        else:
-            gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
+        gps_str = f"📍 GPS : {gps['error']}" if "error" in gps else f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
 
-        if last_mission_start and last_mission_end:
-            mission_duration = last_mission_end - last_mission_start
-        else:
-            mission_duration = "N/A"
+        mission_duration = (
+            str(last_mission_end - last_mission_start)
+            if last_mission_start and last_mission_end else "N/A"
+        )
 
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
-
         temp_cpu = get_cpu_temperature()
         cpu_percent = psutil.cpu_percent(interval=1)
+        power_watt = get_power_estimate()
 
         response = f"""🤖 **État du Rover**
 🔋 Tension actuelle : {voltage} V
 🔌 Courant actuel : {current} A
-🕒 Durée depuis allumage : {uptime_str}
+⚡ Puissance estimée : {power_watt} W
+🕒 Durée depuis allumage : {str(uptime).split('.')[0]}
 📊 Dernière mission : {mission_duration}
 🔋 Moyenne : {avg_voltage}V / {avg_current}A
 🌡 Température CPU : {temp_cpu}°C
@@ -129,3 +130,12 @@ async def on_message(message):
             os.system("sudo reboot")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"❌ Erreur lors du `git pull` :\n```{e.output}```")
+
+@client.event
+async def on_disconnect():
+    # Sauvegarder l’heure de coupure
+    with open(BOOT_TIME_FILE, "w") as f:
+        f.write(datetime.now().isoformat())
+
+def run():
+    client.run(TOKEN)

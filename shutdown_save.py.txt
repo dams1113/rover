@@ -1,0 +1,18 @@
+# shutdown_save.py
+from datetime import datetime
+import os
+
+start_file = "/home/rover/rover/start_time.txt"
+session_file = "/home/rover/rover/last_session.txt"
+
+try:
+    with open(start_file, "r") as f:
+        start_time_str = f.read().strip()
+        start_time = datetime.fromisoformat(start_time_str)
+        now = datetime.now()
+        delta = now - start_time
+        with open(session_file, "w") as sf:
+            sf.write(str(int(delta.total_seconds())))
+except Exception as e:
+    with open(session_file, "w") as sf:
+        sf.write("0")

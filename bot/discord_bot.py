@@ -119,18 +119,25 @@ async def on_message(message):
         os.system("sudo reboot")
 
     elif cmd == "UPDATE":
-        await message.channel.send("📡 Mise à jour en cours via Git...")
-        try:
-            result = subprocess.check_output(
-                "cd ~/rover && git pull --rebase", shell=True, stderr=subprocess.STDOUT, text=True
-            )
-            await message.channel.send(f"✅ Mise à jour terminée :\n```{result}```")
-            await message.channel.send("🔄 Redémarrage du Rover...")
-            save_current_session_duration()
-            await asyncio.sleep(2)
-            os.system("sudo reboot")
-        except subprocess.CalledProcessError as e:
-            await message.channel.send(f"❌ Erreur lors du `git pull` :\n```{e.output}```")
+    await message.channel.send("🔄 Mise à jour en cours...")
+
+    try:
+        # Exécute le script git_update.sh
+        result = subprocess.run(
+            ["/home/rover/rover/git_update.sh"],
+            capture_output=True,
+            text=True,
+            check=False
+        )
+
+        # Affiche la sortie dans Discord
+        if result.returncode == 0:
+            await message.channel.send(f"✅ Mise à jour terminée :\n```{result.stdout.strip()}```")
+        else:
+            await message.channel.send(f"❌ Échec de la mise à jour :\n```{result.stderr.strip()}```")
+
+    except Exception as e:
+        await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
 
 
 

@@ -12,5 +12,5 @@ git clean -fd
 git pull origin main
 
 # Redémarre le service systemd proprement
-echo "🔁 Redémarrage du bot Rover..."
+echo "🔁 Redémarrage du service systemd"
 #sudo systemctl restart rover.service

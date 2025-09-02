@@ -5,7 +5,7 @@ import subprocess
 import psutil
 from datetime import datetime, timedelta
 from modules.energie import get_battery_status as get_power_status
-from modules.gps_reader import get_gps_data as get_gps_position
+from modules.gps_reader import get_gps_data, start_gps_loop
 from modules.motors import handle_movement
 
 # Lire le token depuis un fichier sécurisé
@@ -61,6 +61,7 @@ def save_current_session_duration():
 
 @client.event
 async def on_ready():
+    start_gps_loop()
     print(f"[ROVER] Connecté en tant que {client.user}")
     commit = get_git_commit_hash()
     channel = client.get_channel(CHANNEL_ID)
@@ -83,7 +84,7 @@ async def on_message(message):
         last_voltages.append(voltage)
         last_currents.append(current)
 
-        gps = get_gps_position()
+        gps = get_gps_data()
         if "error" in gps:
             gps_str = f"📍 GPS : {gps['error']}"
         else:
@@ -137,5 +138,4 @@ async def on_message(message):
         except Exception as e:
             await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
 
-# Lancer le bot
 client.run(TOKEN)

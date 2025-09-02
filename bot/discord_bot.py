@@ -138,6 +138,3 @@ async def on_message(message):
 
     except Exception as e:
         await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
-
-
-

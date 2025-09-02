@@ -1,5 +1,3 @@
-# modules/gps_reader.py
-
 import serial
 import pynmea2
 import time
@@ -11,8 +9,8 @@ GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
 # Intervalles d'activation
-GPS_ACTIVE_DURATION = 120  # 2 minutes
-GPS_SLEEP_DURATION = 1800  # 30 minutes
+GPS_ACTIVE_DURATION = 120   # 2 minutes
+GPS_SLEEP_DURATION = 1800   # 30 minutes
 
 # Dernière position valide
 latest_position = {
@@ -33,7 +31,7 @@ def parse_nmea_sentence(line):
     try:
         msg = pynmea2.parse(line)
         if isinstance(msg, pynmea2.types.talker.GGA):
-            if msg.gps_qual > 0:
+            if msg.gps_qual > 0:  # gps_qual: 1 = GPS fix, 2 = DGPS fix
                 return {
                     "latitude": msg.latitude,
                     "longitude": msg.longitude,
@@ -64,9 +62,10 @@ def gps_worker():
                         with position_lock:
                             latest_position = data
                             position_history.append(data)
+                            print(f"[GPS] Fix détecté : {data}")
         except Exception as e:
             print(f"[GPS] Erreur : {e}")
-        print("[GPS] Fin de session, attente...")
+        print("[GPS] Fin de session, attente 30 minutes...")
         time.sleep(GPS_SLEEP_DURATION)
 
 
@@ -74,17 +73,12 @@ def get_gps_data():
     with position_lock:
         if not latest_position["fix"]:
             return {"error": "Pas de fix GPS"}
-
-        lat = latest_position["latitude"]
-        lon = latest_position["longitude"]
-        alt = latest_position["altitude"]
-        sats = latest_position["satellites"]
-
+        
         return {
-            "latitude": lat,
-            "longitude": lon,
-            "altitude": alt,
-            "satellites": sats
+            "latitude": latest_position["latitude"],
+            "longitude": latest_position["longitude"],
+            "altitude": latest_position["altitude"],
+            "satellites": latest_position["satellites"]
         }
 
 

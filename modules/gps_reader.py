@@ -9,8 +9,8 @@ GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
 # Intervalles d'activation
-GPS_ACTIVE_DURATION = 30   # 2 minutes
-GPS_SLEEP_DURATION = 300   # 30 minutes
+GPS_ACTIVE_DURATION = 120   # 2 minutes
+GPS_SLEEP_DURATION = 3600   # 60 minutes
 
 # Dernière position valide
 latest_position = {

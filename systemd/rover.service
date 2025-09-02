@@ -3,12 +3,19 @@ Description=Rover Discord Bot
 After=network.target
 
 [Service]
-ExecStart=/home/pi/rover/.venv/bin/python /home/pi/rover/main.py
-WorkingDirectory=/home/pi/rover
-StandardOutput=inherit
-StandardError=inherit
+Type=simple
+User=rover
+WorkingDirectory=/home/rover/rover
+
+# Active le venv et lance le bot
+ExecStart=/home/rover/rover/.venv/bin/python /home/rover/rover/main.py
+
+# (Optionnel) Mise à jour Git avant démarrage
+ExecStartPre=/home/rover/rover/git_update.sh
+
 Restart=always
-User=pi
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

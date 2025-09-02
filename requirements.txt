@@ -1,2 +1,4 @@
 discord.py
 pyserial
+psutil
+pynmea2

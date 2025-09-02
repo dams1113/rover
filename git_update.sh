@@ -13,4 +13,4 @@ git pull origin main
 
 # Redémarre le service systemd proprement
 echo "🔁 Redémarrage du bot Rover..."
-sudo systemctl restart rover.service
+#sudo systemctl restart rover.service

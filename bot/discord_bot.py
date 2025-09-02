@@ -118,23 +118,24 @@ async def on_message(message):
         await asyncio.sleep(2)
         os.system("sudo reboot")
 
- elif cmd == "UPDATE":
-    await message.channel.send("🔄 Mise à jour en cours...")
+    elif cmd == "UPDATE":
+        await message.channel.send("🔄 Mise à jour en cours...")
 
-     try:
-        # Exécute le script git_update.sh
-        result = subprocess.run(
-            ["/home/rover/rover/git_update.sh"],
-            capture_output=True,
-            text=True,
-            check=False
-        )
+        try:
+            result = subprocess.run(
+                ["/home/rover/rover/git_update.sh"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
 
-        # Affiche la sortie dans Discord
-        if result.returncode == 0:
-            await message.channel.send(f"✅ Mise à jour terminée :\n```{result.stdout.strip()}```")
-        else:
-            await message.channel.send(f"❌ Échec de la mise à jour :\n```{result.stderr.strip()}```")
+            if result.returncode == 0:
+                await message.channel.send(f"✅ Mise à jour terminée :\n```{result.stdout.strip()}```")
+            else:
+                await message.channel.send(f"❌ Échec de la mise à jour :\n```{result.stderr.strip()}```")
 
-    except Exception as e:
-        await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
+        except Exception as e:
+            await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
+
+# Lancer le bot
+client.run(TOKEN)

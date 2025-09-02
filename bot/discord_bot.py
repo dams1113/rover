@@ -118,10 +118,10 @@ async def on_message(message):
         await asyncio.sleep(2)
         os.system("sudo reboot")
 
-    elif cmd == "UPDATE":
+ elif cmd == "UPDATE":
     await message.channel.send("🔄 Mise à jour en cours...")
 
-    try:
+     try:
         # Exécute le script git_update.sh
         result = subprocess.run(
             ["/home/rover/rover/git_update.sh"],

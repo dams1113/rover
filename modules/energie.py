@@ -9,3 +9,5 @@ def get_battery_status():
         "average_current": 0.7,
         "last_session": "N/A"
     }
+
+

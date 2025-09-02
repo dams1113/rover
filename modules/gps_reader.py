@@ -9,7 +9,7 @@ GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
 # Intervalles d'activation
-GPS_ACTIVE_DURATION = 120   # 2 minutes
+GPS_ACTIVE_DURATION = 60   # 2 minutes
 GPS_SLEEP_DURATION = 1800   # 30 minutes
 
 # Dernière position valide

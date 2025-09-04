@@ -7,7 +7,7 @@ import pathlib
 from datetime import datetime, timedelta
 
 from modules.energie import get_battery_status as get_power_status
-from modules.gps_reader import get_gps_data, start_gps_loop
+from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
 
 # Lire le token depuis un fichier sécurisé
@@ -15,7 +15,7 @@ with open("bot/token.txt", "r") as f:
     TOKEN = f.read().strip()
 
 # ID du salon Discord
-CHANNEL_ID = 1398325400475537462  # ⚠️ adapte si besoin
+CHANNEL_ID = 1398325400475537462  # ⚠️ adapte avec ton ID réel
 
 # Initialisation du bot
 intents = discord.Intents.default()
@@ -25,13 +25,12 @@ client = discord.Client(intents=intents)
 # Début de session
 start_time = datetime.now()
 
-# Historique tension/courant
+# Historique
 last_voltages = []
 last_currents = []
 
 # Dernière session (chargée depuis un fichier)
 SESSION_FILE = "bot/last_session.txt"
-
 
 # --- Fonctions utilitaires ---
 def get_git_commit_hash():
@@ -63,14 +62,14 @@ def save_current_session_duration():
     with open(SESSION_FILE, "w") as f:
         f.write(str(duration))
 
-
 # --- Événements Discord ---
 @client.event
 async def on_ready():
-    print(f"[Rover] Connecté en tant que {client.user}")
-    # Lancer la boucle GPS
-    start_gps_loop()
-
+    print(f"[ROVER] Connecté en tant que {client.user}")
+    commit = get_git_commit_hash()
+    channel = client.get_channel(CHANNEL_ID)
+    if channel:
+        await channel.send(f"✅ Rover en ligne – version `{commit}`")
 
 @client.event
 async def on_message(message):
@@ -89,33 +88,64 @@ async def on_message(message):
         last_voltages.append(voltage)
         last_currents.append(current)
 
-        gps = get_gps_data()
+        gps = get_gps_position()
         if "error" in gps:
             gps_str = f"📍 GPS : {gps['error']}"
         else:
-            gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} (sats={gps['satellites']})"
+            gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
 
-        msg = (
-            f"🤖 Rover en ligne\n"
-            f"⏱ Uptime : {uptime}\n"
-            f"🔋 Tension : {voltage} V | Courant : {current} A\n"
-            f"{gps_str}\n"
-            f"🌡 Temp CPU : {get_cpu_temperature()} °C\n"
-            f"📦 Version Git : {get_git_commit_hash()}"
-        )
-        await message.channel.send(msg)
+        avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
+        avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
 
-    # --- UPDATE ---
-    elif cmd == "UPDATE":
-        await message.channel.send("⬇️ Mise à jour du code...")
-        subprocess.run(["bash", "git_update.sh"])
-        await message.channel.send("✅ Update terminée (sans reboot).")
+        temp_cpu = get_cpu_temperature()
+        cpu_percent = psutil.cpu_percent(interval=1)
+        last_session = load_last_session_duration()
+
+        response = f"""🤖 **État du Rover**
+🔋 Tension actuelle : {voltage} V
+🔌 Courant actuel : {current} A
+🕒 Durée depuis allumage : {uptime}
+⏱ Dernière session : {last_session}
+📊 Moyenne : {avg_voltage}V / {avg_current}A
+🌡 Température CPU : {temp_cpu}°C
+🧠 CPU utilisé : {cpu_percent}%
+{gps_str}
+"""
+        await message.channel.send(response)
+
+    # --- Commandes moteurs ---
+    elif cmd in ["AVANCE", "RECULE", "STOP"]:
+        handle_movement(cmd)
+        await message.channel.send(f"[ROVER] Commande reçue : {cmd}")
 
     # --- REBOOT ---
     elif cmd == "REBOOT":
-        await message.channel.send("♻️ Reboot en cours…")
+        await message.channel.send("🔄 Redémarrage du Rover...")
         save_current_session_duration()
-        subprocess.run(["sudo", "reboot"])
+        await asyncio.sleep(2)
+        os.system("sudo reboot")
+
+    # --- UPDATE ---
+    elif cmd == "UPDATE":
+        await message.channel.send("🔄 Mise à jour en cours...")
+        try:
+            result = subprocess.run(
+                ["/home/rover/rover/git_update.sh"],
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            stdout = result.stdout.strip()
+            if len(stdout) > 1900:
+                stdout = stdout[:1900] + "\n[...] (tronqué)"
+
+            if result.returncode == 0:
+                await message.channel.send(f"✅ Mise à jour terminée :\n```{stdout}```")
+            else:
+                await message.channel.send(f"❌ Échec de la mise à jour :\n```{result.stderr.strip()}```")
+
+        except Exception as e:
+            await message.channel.send(f"❌ Erreur lors de la mise à jour : {e}")
 
     # --- MAP ---
     elif cmd == "MAP":
@@ -124,7 +154,7 @@ async def on_message(message):
         map_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Prendre tous les fichiers logs/gps_*.csv
+            # Prendre automatiquement tous les fichiers GPS
             csv_files = list(pathlib.Path("logs").glob("gps_*.csv"))
             if not csv_files:
                 await message.channel.send("⚠️ Aucun fichier GPS trouvé dans logs/")
@@ -144,12 +174,6 @@ async def on_message(message):
 
         except Exception as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
-
-    # --- Commandes moteurs (exemple) ---
-    elif cmd in ["AVANCE", "RECULE", "GAUCHE", "DROITE", "STOP"]:
-        await message.channel.send(f"🕹 Commande mouvement : {cmd}")
-        handle_movement(cmd)
-
 
 # --- Lancer le bot ---
 client.run(TOKEN)

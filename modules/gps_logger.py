@@ -21,3 +21,5 @@ def log_loop(interval=30):
                     data["altitude"], data["satellites"]
                 ])
         time.sleep(interval)
+if __name__ == "__main__":
+    log_loop(5)  # log toutes les 5 secondes

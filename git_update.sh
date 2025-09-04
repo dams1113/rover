@@ -1,16 +1,12 @@
 #!/bin/bash
 
-cd /home/rover/rover || exit 1
-
+cd /home/rover/rover || exit
 echo "📡 Mise à jour en cours via Git..."
 
-# Réinitialise les fichiers modifiés localement
-git reset --hard HEAD
-git clean -fd
+# Forcer un reset si nécessaire
+git fetch origin main
+git reset --hard origin/main
 
-# Fait le pull depuis la branche main
-git pull origin main
-
-# Redémarre le service systemd proprement
+# Facultatif : redémarrage du service
 echo "🔁 Redémarrage du service systemd"
-#sudo systemctl restart rover.service
+sudo systemctl restart rover.service

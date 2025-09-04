@@ -1,12 +1,14 @@
 #!/bin/bash
+# Script de mise à jour Git pour le Rover
+# Compatible avec systemd (ne bloque jamais le démarrage)
 
-cd /home/rover/rover || exit
-echo "📡 Mise à jour en cours via Git..."
+cd /home/rover/rover || exit 0
 
-# Forcer un reset si nécessaire
-git fetch origin main
-git reset --hard origin/main
+echo "[Rover Update] Fetching latest code..."
+git fetch origin || true
 
-# Facultatif : redémarrage du service
-echo "🔁 Redémarrage du service systemd"
-sudo systemctl restart rover.service
+echo "[Rover Update] Resetting to origin/main..."
+git reset --hard origin/main || true
+
+echo "[Rover Update] Update finished."
+exit 0

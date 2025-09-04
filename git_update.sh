@@ -1,14 +1,14 @@
 #!/bin/bash
 # Script de mise à jour Git pour le Rover
-# Compatible avec systemd (ne bloque jamais le démarrage)
+# ⚠️ Ne fait JAMAIS planter systemd
 
 cd /home/rover/rover || exit 0
 
-echo "[Rover Update] Fetching latest code..."
-git fetch origin || true
+echo "📡 Mise à jour en cours via Git..."
 
-echo "[Rover Update] Resetting to origin/main..."
+# Récupération sans bloquer si erreur
+git fetch origin || true
 git reset --hard origin/main || true
 
-echo "[Rover Update] Update finished."
+echo "✅ Mise à jour terminée."
 exit 0

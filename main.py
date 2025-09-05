@@ -1,7 +1,10 @@
 from bot import discord_bot
 import threading
 from modules.gps_logger import log_loop
-threading.Thread(target=log_loop, daemon=True).start()
+
+# Démarre l’enregistrement GPS toutes les 30 s
+threading.Thread(target=log_loop, args=(30,), daemon=True).start()
+
 
 if __name__ == "__main__":
     import asyncio

@@ -1,20 +1,18 @@
 [Unit]
-Description=Rover Discord Bot
-After=network-online.target
-Wants=network-online.target
+Description=Rover Discord Bot + GPS Logger
+After=network.target
 
 [Service]
 Type=simple
 User=rover
 WorkingDirectory=/home/rover/rover
-
-# Lance directement le bot avec le venv
 ExecStart=/home/rover/rover/.venv/bin/python /home/rover/rover/main.py
-
-# Redémarrage automatique en cas de crash
 Restart=always
 RestartSec=10
+
+# Log en UTF-8
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
 
 [Install]
 WantedBy=multi-user.target

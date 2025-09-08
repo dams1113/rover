@@ -8,7 +8,8 @@ echo "📡 Mise à jour en cours via Git..."
 
 # Récupération sans bloquer si erreur
 git fetch origin || true
-git reset --hard origin/main || true
+git checkout origin/main -- . ':!main.py'
+
 
 echo "✅ Mise à jour terminée."
 exit 0

@@ -5,3 +5,9 @@ map/
 # Ignorer l'environnement virtuel
 .venv/
 
+# Ignorer les fichiers de travail Python
+__pycache__/
+*.pyc
+
+# Ignorer le fichier de session du bot
+bot/last_session.txt

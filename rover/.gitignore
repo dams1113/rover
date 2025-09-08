@@ -1,0 +1,7 @@
+# Ignorer les fichiers de logs GPS
+logs/
+# Ignorer les cartes générées
+map/
+# Ignorer l'environnement virtuel
+.venv/
+

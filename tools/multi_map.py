@@ -10,6 +10,7 @@ Usage :
 import argparse, pathlib, csv, folium
 from folium.plugins import HeatMap, MarkerCluster
 
+
 def read_points_csv(path):
     pts = []
     with open(path, newline="") as f:
@@ -27,9 +28,11 @@ def read_points_csv(path):
             pts.append((lat, lon, ts))
     return pts
 
+
 def add_basemap(m, basemap, tiles_url=None, tiles_attrib=""):
     if tiles_url:
-        folium.TileLayer(tiles=tiles_url, attr=tiles_attrib, name="Custom").add_to(m); return
+        folium.TileLayer(tiles=tiles_url, attr=tiles_attrib, name="Custom").add_to(m)
+        return
     if basemap == "positron":
         folium.TileLayer("CartoDB positron", name="CartoDB Positron").add_to(m)
     elif basemap == "dark":
@@ -40,6 +43,7 @@ def add_basemap(m, basemap, tiles_url=None, tiles_attrib=""):
         folium.TileLayer("Stamen Toner").add_to(m)
     else:
         folium.TileLayer("OpenStreetMap").add_to(m)
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -79,8 +83,18 @@ def main():
         if args.points:
             cl = MarkerCluster(name=f"Points {i+1}", show=False)
             for (lat, lon, ts) in pts:
-                folium.CircleMarker(location=[lat,lon], radius=2, fill=True, fill_opacity=0.9, tooltip=ts).add_to(cl)
+                folium.CircleMarker(location=[lat, lon], radius=2,
+                                    fill=True, fill_opacity=0.9, tooltip=ts).add_to(cl)
             cl.add_to(m)
 
     if args.heatmap and heat_pts:
-        HeatMap(heat_pts, name="HeatMap densité",_
+        HeatMap(heat_pts, name="HeatMap densité").add_to(m)
+
+    folium.LayerControl().add_to(m)
+    pathlib.Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    m.save(args.out)
+    print(f"[OK] Carte générée : {args.out}")
+
+
+if __name__ == "__main__":
+    main()

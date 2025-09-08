@@ -3,6 +3,7 @@ import asyncio
 
 from bot import discord_bot
 from modules.gps_logger import log_loop
+from modules.gps_reader import start_gps_loop
 
 
 def start_gps_logger():
@@ -13,6 +14,10 @@ def start_gps_logger():
 
 
 def main():
+    # Lancer la boucle GPS (lecture série)
+    start_gps_loop()
+    print("[MAIN] Boucle GPS démarrée")
+
     # Lancer le logger GPS
     start_gps_logger()
 

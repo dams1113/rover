@@ -7,7 +7,7 @@ import pathlib
 from datetime import datetime, timedelta
 
 from modules.energie import get_battery_status as get_power_status
-from modules.gps_reader import get_gps_data as get_gps_position
+from modules.gps_reader import get_gps_data as get_gps_position, start_gps_loop
 from modules.motors import handle_movement
 
 # Lire le token depuis un fichier sécurisé
@@ -66,6 +66,7 @@ def save_current_session_duration():
 @client.event
 async def on_ready():
     print(f"[ROVER] Connecté en tant que {client.user}")
+    start_gps_loop()   # 🚀 démarre la boucle GPS dès la connexion du bot
     commit = get_git_commit_hash()
     channel = client.get_channel(CHANNEL_ID)
     if channel:
@@ -89,10 +90,10 @@ async def on_message(message):
         last_currents.append(current)
 
         gps = get_gps_position()
-        if "error" in gps:
-            gps_str = f"📍 GPS : {gps['error']}"
-        else:
+        if gps.get("fix"):
             gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
+        else:
+            gps_str = "📍 GPS : Pas de fix"
 
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"

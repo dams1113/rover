@@ -35,15 +35,14 @@ _position_lock = threading.Lock()
 def parse_nmea_sentence(line):
     """Parse une trame NMEA et met à jour latest_position si valide"""
     global latest_position
-
     try:
         msg = pynmea2.parse(line)
     except pynmea2.ParseError:
         return
 
     if isinstance(msg, pynmea2.types.talker.GGA):
+        fix_ok = int(msg.gps_qual or 0) >= 1
         with _position_lock:
-            fix_ok = int(msg.gps_qual or 0) >= 1
             latest_position.update({
                 "latitude": msg.latitude if fix_ok else None,
                 "longitude": msg.longitude if fix_ok else None,
@@ -52,6 +51,7 @@ def parse_nmea_sentence(line):
                 "timestamp": datetime.utcnow().isoformat(),
                 "fix": fix_ok
             })
+        print(f"[GPS DEBUG] maj position: {latest_position}")  # debug
 
 
 def gps_loop():
@@ -62,7 +62,7 @@ def gps_loop():
 
     try:
         ser = serial.Serial(GPS_PORT, GPS_BAUDRATE, timeout=GPS_TIMEOUT)
-        print(f"[GPS] Boucle démarrée sur {GPS_PORT}")
+        print(f"[GPS] Boucle démarrée sur {GPS_PORT} à {GPS_BAUDRATE} bauds")
     except Exception as e:
         print(f"[GPS ERROR] Impossible d'ouvrir {GPS_PORT}: {e}")
         return
@@ -70,6 +70,8 @@ def gps_loop():
     while True:
         try:
             line = ser.readline().decode(errors="ignore").strip()
+            if line:
+                print(f"[GPS DEBUG] Trame brute: {line}")
             if line.startswith("$"):
                 parse_nmea_sentence(line)
         except Exception as e:

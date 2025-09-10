@@ -5,7 +5,7 @@ import time
 from datetime import datetime
 
 # Paramètres du port série
-GPS_PORT = "/dev/serial0"
+GPS_PORT = "/dev/ttyACM0"
 GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 

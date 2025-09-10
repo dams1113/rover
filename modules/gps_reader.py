@@ -2,14 +2,25 @@ import serial
 import pynmea2
 import threading
 import time
+import os
 from datetime import datetime
 
-# Paramètres du port série
-GPS_PORT = "/dev/ttyACM0"
+# ==============================
+# Détection automatique du port
+# ==============================
+if os.path.exists("/dev/ttyACM0"):
+    GPS_PORT = "/dev/ttyACM0"   # VK-162 USB
+elif os.path.exists("/dev/serial0"):
+    GPS_PORT = "/dev/serial0"   # Neo via UART GPIO
+else:
+    GPS_PORT = None             # Aucun GPS détecté
+
 GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
-# Dernière position connue (thread-safe)
+# ==============================
+# Dernière position connue
+# ==============================
 latest_position = {
     "latitude": None,
     "longitude": None,
@@ -32,7 +43,6 @@ def parse_nmea_sentence(line):
 
     if isinstance(msg, pynmea2.types.talker.GGA):
         with _position_lock:
-            # Fix : gps_qual >= 1 (1 = GPS fix, 2 = DGPS, etc.)
             fix_ok = int(msg.gps_qual or 0) >= 1
             latest_position.update({
                 "latitude": msg.latitude if fix_ok else None,
@@ -46,13 +56,17 @@ def parse_nmea_sentence(line):
 
 def gps_loop():
     """Boucle de lecture GPS en tâche de fond"""
+    if not GPS_PORT:
+        print("[GPS ERROR] Aucun port GPS détecté (/dev/ttyACM0 ou /dev/serial0)")
+        return
+
     try:
         ser = serial.Serial(GPS_PORT, GPS_BAUDRATE, timeout=GPS_TIMEOUT)
+        print(f"[GPS] Boucle démarrée sur {GPS_PORT}")
     except Exception as e:
         print(f"[GPS ERROR] Impossible d'ouvrir {GPS_PORT}: {e}")
         return
 
-    print("[GPS] Boucle démarrée")
     while True:
         try:
             line = ser.readline().decode(errors="ignore").strip()
@@ -76,7 +90,9 @@ def get_gps_data():
         return latest_position.copy()
 
 
-# Mode test (lancer directement ce fichier)
+# ==============================
+# Mode test direct
+# ==============================
 if __name__ == "__main__":
     start_gps_loop()
     for _ in range(20):

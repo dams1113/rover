@@ -34,3 +34,26 @@ def main():
 
 if __name__ == "__main__":
     main()
+def gps_loop():
+    """Boucle de lecture GPS en tâche de fond"""
+    if not GPS_PORT:
+        print("[GPS ERROR] Aucun port GPS détecté (/dev/ttyACM0 ou /dev/serial0)")
+        return
+
+    try:
+        ser = serial.Serial(GPS_PORT, GPS_BAUDRATE, timeout=GPS_TIMEOUT)
+        print(f"[GPS] Boucle démarrée sur {GPS_PORT} à {GPS_BAUDRATE} bauds")
+    except Exception as e:
+        print(f"[GPS ERROR] Impossible d'ouvrir {GPS_PORT}: {e}")
+        return
+
+    while True:
+        try:
+            line = ser.readline().decode(errors="ignore").strip()
+            if line:
+                print(f"[GPS DEBUG] Trame brute: {line}")   # <== ajout
+            if line.startswith("$"):
+                parse_nmea_sentence(line)
+        except Exception as e:
+            print(f"[GPS ERROR] {e}")
+        time.sleep(0.1)

@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Environnement virtuel
+.venv/
+
+# Logs GPS
+logs/
+
+# Cartes générées
+map/
+
+# Session du bot
+bot/last_session.txt

@@ -2,7 +2,7 @@ import csv
 import pathlib
 import datetime
 import time
-from modules.gps_reader import get_gps_data
+from modules.gps_reader import get_gps_data, start_gps_loop
 
 LOG_DIR = pathlib.Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
@@ -41,4 +41,5 @@ def log_loop(interval=30):
 
 if __name__ == "__main__":
     print("[GPS_LOGGER] Démarrage en mode test (intervalle = 5s)")
+    start_gps_loop()  # 🚀 indispensable pour lancer la lecture GPS
     log_loop(5)

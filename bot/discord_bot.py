@@ -7,7 +7,7 @@ import pathlib
 from datetime import datetime, timedelta
 
 from modules.energie import get_battery_status as get_power_status
-from modules.gps_reader import get_gps_data as get_gps_position, start_gps_loop
+from modules.gps_reader import get_gps_data as get_gps_position
 from modules.motors import handle_movement
 
 # Lire le token depuis un fichier sécurisé
@@ -32,12 +32,14 @@ last_currents = []
 # Dernière session (chargée depuis un fichier)
 SESSION_FILE = "bot/last_session.txt"
 
+
 # --- Fonctions utilitaires ---
 def get_git_commit_hash():
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
     except:
         return "inconnu"
+
 
 def get_cpu_temperature():
     try:
@@ -46,8 +48,10 @@ def get_cpu_temperature():
     except:
         return "N/A"
 
+
 def get_uptime():
     return datetime.now() - start_time
+
 
 def load_last_session_duration():
     try:
@@ -57,20 +61,22 @@ def load_last_session_duration():
     except:
         return "Inconnue"
 
+
 def save_current_session_duration():
     duration = (datetime.now() - start_time).total_seconds()
     with open(SESSION_FILE, "w") as f:
         f.write(str(duration))
 
+
 # --- Événements Discord ---
 @client.event
 async def on_ready():
     print(f"[ROVER] Connecté en tant que {client.user}")
-    start_gps_loop()   # 🚀 démarre la boucle GPS dès la connexion du bot
     commit = get_git_commit_hash()
     channel = client.get_channel(CHANNEL_ID)
     if channel:
         await channel.send(f"✅ Rover en ligne – version `{commit}`")
+
 
 @client.event
 async def on_message(message):
@@ -90,10 +96,14 @@ async def on_message(message):
         last_currents.append(current)
 
         gps = get_gps_position()
-        if gps.get("fix"):
-            gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats"
+        if "error" in gps:
+            gps_str = f"📍 GPS : {gps['error']}"
         else:
-            gps_str = "📍 GPS : Pas de fix"
+            gps_str = (
+                f"📍 GPS : {gps['latitude']}, {gps['longitude']} "
+                f"alt. {gps['altitude']}m - {gps['satellites']} sats\n"
+                f"🕔 Dernière fix : {gps['timestamp']}"
+            )
 
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
@@ -155,7 +165,6 @@ async def on_message(message):
         map_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Prendre automatiquement tous les fichiers GPS
             csv_files = list(pathlib.Path("logs").glob("gps_*.csv"))
             if not csv_files:
                 await message.channel.send("⚠️ Aucun fichier GPS trouvé dans logs/")
@@ -175,6 +184,7 @@ async def on_message(message):
 
         except Exception as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
+
 
 # --- Lancer le bot ---
 client.run(TOKEN)

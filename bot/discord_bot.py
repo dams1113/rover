@@ -1,3 +1,4 @@
+# bot/discord_bot.py
 import discord
 import asyncio
 import os
@@ -85,7 +86,7 @@ async def on_message(message):
 
     cmd = message.content.strip().upper()
 
-     # --- STATUS ---
+    # --- STATUS ---
     if cmd == "STATUS":
         uptime = get_uptime()
         power = get_power_status()
@@ -101,7 +102,6 @@ async def on_message(message):
         else:
             ts = gps.get("timestamp")
             if ts:
-                # Calcul de l'âge de la donnée
                 try:
                     ts_dt = datetime.fromisoformat(ts)
                     age = (datetime.utcnow() - ts_dt).total_seconds()
@@ -113,7 +113,7 @@ async def on_message(message):
                 else:
                     gps_str = f"📍 GPS : {gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m - {gps['satellites']} sats\n🕔 Dernière fix : {ts}"
             else:
-                gps_str = f"📍 GPS : pas de timestamp"
+                gps_str = "📍 GPS : pas de timestamp"
 
         avg_voltage = round(sum(last_voltages) / len(last_voltages), 2) if last_voltages else "N/A"
         avg_current = round(sum(last_currents) / len(last_currents), 2) if last_currents else "N/A"
@@ -133,7 +133,6 @@ async def on_message(message):
 {gps_str}
 """
         await message.channel.send(response)
-
 
     # --- Commandes moteurs ---
     elif cmd in ["AVANCE", "RECULE", "STOP"]:

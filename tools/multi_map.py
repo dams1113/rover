@@ -1,14 +1,25 @@
-# tools/multi_map.py
 """
 Superposer plusieurs fichiers CSV GPS sur une seule carte Folium.
 Chaque trace est une couche distincte + HeatMap/points optionnels.
 
 Usage :
-  python3 tools/multi_map.py --in logs/gps_2025-09-03.csv --in logs/gps_2025-09-04.csv --out map/multi_map.html --basemap positron --heatmap --points
+  python3 tools/multi_map.py --in logs/gps_2025-09-03.csv --in logs/gps_2025-09-04.csv \
+      --out map/multi_map.html --basemap positron --heatmap --points
 """
 
-import argparse, pathlib, csv, folium
+import argparse, pathlib, csv, folium, math
 from folium.plugins import HeatMap, MarkerCluster
+
+
+def is_valid_coord(val):
+    """Retourne True si val est un nombre valide (float)"""
+    if val is None or val == "":
+        return False
+    try:
+        f = float(val)
+        return not math.isnan(f)
+    except:
+        return False
 
 
 def read_points_csv(path):
@@ -16,22 +27,14 @@ def read_points_csv(path):
     with open(path, newline="") as f:
         r = csv.DictReader(f)
         for row in r:
-            # Vérifie si la ligne a un fix GPS valide
-            if row.get("fix") not in ["True", "1", "true"]:
-                continue
-
             lat = row.get("latitude_filt") or row.get("latitude")
             lon = row.get("longitude_filt") or row.get("longitude")
-            if not lat or not lon:
-                continue
-            try:
-                lat = float(lat)
-                lon = float(lon)
-            except ValueError:
+
+            if not (is_valid_coord(lat) and is_valid_coord(lon)):
                 continue
 
             ts = row.get("timestamp_utc", "")
-            pts.append((lat, lon, ts))
+            pts.append((float(lat), float(lon), ts))
     return pts
 
 
@@ -69,7 +72,7 @@ def main():
             all_tracks.append((p, pts))
 
     if not all_tracks:
-        raise SystemExit("Aucun point GPS valide trouvé (fix=True obligatoire).")
+        raise SystemExit("Aucun point GPS valide trouvé")
 
     first_lat, first_lon, _ = all_tracks[0][1][0]
     m = folium.Map(location=[first_lat, first_lon], zoom_start=16, control_scale=True)
@@ -77,6 +80,7 @@ def main():
 
     colors = ["red","blue","green","purple","orange","pink","gray","black"]
     heat_pts = []
+
     for i, (name, pts) in enumerate(all_tracks):
         latlons = [(lat, lon) for (lat, lon, _) in pts]
         color = colors[i % len(colors)]

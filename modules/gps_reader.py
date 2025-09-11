@@ -18,6 +18,7 @@ else:
 GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
+# Dernières données connues
 gps_data = {
     "latitude": None,
     "longitude": None,
@@ -27,11 +28,12 @@ gps_data = {
     "fix": False
 }
 
+
 def read_gps():
     """Boucle de lecture GPS (thread)."""
     global gps_data
     if GPS_PORT is None:
-        print("[GPS ERROR] Aucun port GPS détecté")
+        print("[GPS ERROR] Aucun port GPS détecté (/dev/ttyACM0 ou /dev/serial0)")
         return
 
     try:
@@ -40,11 +42,11 @@ def read_gps():
 
         for line in ser:
             try:
-                line = line.decode("ascii", errors="replace").strip()
+                line = line.decode("ascii", errors="ignore").strip()
                 if not line.startswith("$"):
                     continue
-                print("[GPS DEBUG] Trame brute:", line)
 
+                print(f"[GPS DEBUG] Trame brute: {line}")
                 msg = pynmea2.parse(line)
 
                 # GGA → fix, altitude, nb satellites
@@ -61,20 +63,21 @@ def read_gps():
 
                 # RMC → coordonnées + fix
                 elif isinstance(msg, pynmea2.types.talker.RMC):
-                    if msg.status == "A":  # Fix actif
-                        gps_data.update({
-                            "latitude": msg.latitude,
-                            "longitude": msg.longitude,
-                            "timestamp": datetime.utcnow().isoformat(),
-                            "fix": True
-                        })
-                        print("[GPS DEBUG] maj RMC:", gps_data)
+                    gps_data.update({
+                        "latitude": msg.latitude if msg.status == "A" else None,
+                        "longitude": msg.longitude if msg.status == "A" else None,
+                        "timestamp": datetime.utcnow().isoformat(),
+                        "fix": msg.status == "A"
+                    })
+                    print("[GPS DEBUG] maj RMC:", gps_data)
 
+            except pynmea2.nmea.ChecksumError:
+                print(f"[GPS WARN] Trame ignorée (checksum invalide): {line}")
             except Exception as e:
-                print("[GPS ERROR] Parse:", e, line)
+                print(f"[GPS ERROR] Parse: {e} | ligne: {line}")
 
     except Exception as e:
-        print("[GPS ERROR] Impossible d'ouvrir le port:", e)
+        print(f"[GPS ERROR] Impossible d'ouvrir {GPS_PORT}: {e}")
 
 
 def start_gps_loop():
@@ -84,7 +87,7 @@ def start_gps_loop():
 
 
 def get_gps_data():
-    """Retourner les dernières données GPS connues."""
+    """Retourner les dernières données GPS connues (copie)."""
     return gps_data.copy()
 
 

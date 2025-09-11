@@ -16,14 +16,20 @@ def read_points_csv(path):
     with open(path, newline="") as f:
         r = csv.DictReader(f)
         for row in r:
+            # Vérifie si la ligne a un fix GPS valide
+            if row.get("fix") not in ["True", "1", "true"]:
+                continue
+
             lat = row.get("latitude_filt") or row.get("latitude")
             lon = row.get("longitude_filt") or row.get("longitude")
             if not lat or not lon:
                 continue
             try:
-                lat = float(lat); lon = float(lon)
-            except:
+                lat = float(lat)
+                lon = float(lon)
+            except ValueError:
                 continue
+
             ts = row.get("timestamp_utc", "")
             pts.append((lat, lon, ts))
     return pts
@@ -61,8 +67,9 @@ def main():
         pts = read_points_csv(p)
         if pts:
             all_tracks.append((p, pts))
+
     if not all_tracks:
-        raise SystemExit("Aucun point trouvé")
+        raise SystemExit("Aucun point GPS valide trouvé (fix=True obligatoire).")
 
     first_lat, first_lon, _ = all_tracks[0][1][0]
     m = folium.Map(location=[first_lat, first_lon], zoom_start=16, control_scale=True)

@@ -9,18 +9,9 @@ LOG_DIR = pathlib.Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
 def log_loop(interval=30):
-    """Écrit une ligne GPS (fix ou non) dans logs/gps_YYYY-MM-DD.csv"""
+    """Écrit une ligne GPS toutes les X secondes (même sans fix)."""
     while True:
         data = get_gps_data() or {}
-
-        lat = data.get("latitude")
-        lon = data.get("longitude")
-
-        if lat is None or lon is None:
-            print("[GPS_LOGGER] Pas de coordonnées valides, ligne ignorée")
-            time.sleep(interval)
-            continue
-
         path = LOG_DIR / f"gps_{datetime.date.today()}.csv"
         newfile = not path.exists()
 
@@ -31,18 +22,15 @@ def log_loop(interval=30):
 
             w.writerow([
                 datetime.datetime.utcnow().isoformat(),
-                lat,
-                lon,
+                data.get("latitude"),
+                data.get("longitude"),
                 data.get("altitude"),
                 data.get("satellites"),
                 data.get("fix"),
             ])
 
-        status = "FIX" if data.get("fix") else "NOFIX"
-        print(f"[GPS_LOGGER] ({status}) Ligne écrite : {lat}, {lon}, sats={data.get('satellites')}")
-
+        print(f"[GPS_LOGGER] Ligne écrite : {data}")
         time.sleep(interval)
-
 
 if __name__ == "__main__":
     print("[GPS_LOGGER] Démarrage en mode test (intervalle = 5s)")

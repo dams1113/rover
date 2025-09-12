@@ -8,28 +8,29 @@ from modules.gps_logger import log_loop
 
 
 def main():
-    print("[MAIN] Démarrage du Rover...")
+    print("[MAIN] ?? Démarrage du Rover...")
 
-    # Démarrer la boucle GPS
+    # --- Démarrer la boucle GPS ---
     try:
         start_gps_loop()
-        print("[MAIN] Boucle GPS démarrée")
+        print("[MAIN] ? Boucle GPS démarrée")
     except Exception as e:
-        print(f"[MAIN][ERREUR] Impossible de démarrer la boucle GPS : {e}", file=sys.stderr)
+        print(f"[MAIN][ERREUR] ? Impossible de démarrer la boucle GPS : {e}", file=sys.stderr)
 
-    # Démarrer le logger GPS (en arrière-plan)
+    # --- Démarrer le logger GPS ---
     try:
-        threading.Thread(target=log_loop, args=(30,), daemon=True).start()
-        print("[MAIN] GPS Logger lancé (intervalle = 30s)")
+        t = threading.Thread(target=log_loop, args=(30,), daemon=True)
+        t.start()
+        print("[MAIN] ? Logger GPS lancé (intervalle = 30s)")
     except Exception as e:
-        print(f"[MAIN][ERREUR] Impossible de lancer le logger GPS : {e}", file=sys.stderr)
+        print(f"[MAIN][ERREUR] ? Impossible de lancer le logger GPS : {e}", file=sys.stderr)
 
-    # Démarrer le bot Discord
+    # --- Lancer le bot Discord ---
     try:
-        print("[MAIN] Lancement du bot Discord...")
+        print("[MAIN] ?? Lancement du bot Discord...")
         asyncio.run(discord_bot.client.start(discord_bot.TOKEN))
     except Exception as e:
-        print(f"[MAIN][ERREUR] Le bot Discord a planté : {e}", file=sys.stderr)
+        print(f"[MAIN][ERREUR] ? Le bot Discord a planté : {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

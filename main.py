@@ -1,37 +1,40 @@
-# main.py
 import threading
 import asyncio
 import sys
+import time
 
-from modules.gps_reader import start_gps_loop
-from modules.gps_logger import log_loop
 from bot import discord_bot
-
+from modules.gps_reader import start_gps_loop, get_gps_data
+from modules.gps_logger import log_loop
 
 def main():
     print("[MAIN] 🚀 Démarrage du Rover...")
 
-    # --- GPS Loop ---
+    # GPS Loop
     try:
         start_gps_loop()
-        print("[MAIN] ✅ Thread GPS démarré")
+        print("[MAIN] ✅ Boucle GPS démarrée")
     except Exception as e:
-        print(f"[MAIN][ERREUR] GPS non démarré : {e}", file=sys.stderr)
+        print(f"[MAIN][ERREUR] Impossible de démarrer la boucle GPS : {e}", file=sys.stderr)
 
-    # --- GPS Logger ---
+    # GPS Logger (écrit dans logs/gps_*.csv)
     try:
-        threading.Thread(target=log_loop, args=(30,), daemon=True).start()
-        print("[MAIN] ✅ Logger GPS lancé (intervalle = 30s)")
+        t = threading.Thread(target=log_loop, args=(30,), daemon=True)
+        t.start()
+        print("[MAIN] ✅ GPS Logger lancé (intervalle = 30s)")
     except Exception as e:
-        print(f"[MAIN][ERREUR] Logger non démarré : {e}", file=sys.stderr)
+        print(f"[MAIN][ERREUR] Impossible de lancer le logger GPS : {e}", file=sys.stderr)
 
-    # --- Discord Bot ---
+    # Petit test pour confirmer qu’on reçoit bien les données
+    time.sleep(5)
+    print("[MAIN] Exemple données GPS:", get_gps_data())
+
+    # Discord Bot
     try:
-        print("[MAIN] 🤖 Lancement du bot Discord...")
+        print("[MAIN] 🚀 Lancement du bot Discord...")
         asyncio.run(discord_bot.client.start(discord_bot.TOKEN))
     except Exception as e:
-        print(f"[MAIN][ERREUR] Bot planté : {e}", file=sys.stderr)
-
+        print(f"[MAIN][ERREUR] Le bot Discord a planté : {e}", file=sys.stderr)
 
 if __name__ == "__main__":
     main()

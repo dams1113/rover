@@ -1,4 +1,3 @@
-# modules/gps_reader.py
 import serial
 import pynmea2
 import threading
@@ -6,16 +5,22 @@ import time
 import os
 from datetime import datetime
 
+# ==============================
+# Détection automatique du port
+# ==============================
 if os.path.exists("/dev/ttyACM0"):
-    GPS_PORT = "/dev/ttyACM0"   # VK-162 USB
+    GPS_PORT = "/dev/ttyACM0"   # GPS USB (VK-162 par ex.)
 elif os.path.exists("/dev/serial0"):
-    GPS_PORT = "/dev/serial0"   # Neo via UART GPIO
+    GPS_PORT = "/dev/serial0"   # GPS UART GPIO (NEO-6M par ex.)
 else:
-    GPS_PORT = None
+    GPS_PORT = None             # Aucun GPS détecté
 
 GPS_BAUDRATE = 9600
 GPS_TIMEOUT = 1.0
 
+# ==============================
+# Données GPS partagées
+# ==============================
 gps_data = {
     "latitude": None,
     "longitude": None,
@@ -25,27 +30,31 @@ gps_data = {
     "fix": False
 }
 
-gps_thread = None  # pour éviter plusieurs threads
 
 def read_gps():
-    """Boucle de lecture GPS en thread."""
+    """Boucle de lecture GPS (thread)."""
     global gps_data
     if GPS_PORT is None:
-        print("[GPS ERROR] Aucun port GPS détecté")
+        print("[GPS ERROR] ❌ Aucun port GPS détecté")
         return
 
     try:
         ser = serial.Serial(GPS_PORT, GPS_BAUDRATE, timeout=GPS_TIMEOUT)
-        print(f"[GPS] Boucle démarrée sur {GPS_PORT} à {GPS_BAUDRATE} bauds")
+        print(f"[GPS] ✅ Boucle démarrée sur {GPS_PORT} à {GPS_BAUDRATE} bauds")
 
         for line in ser:
             try:
                 line = line.decode("ascii", errors="replace").strip()
                 if not line.startswith("$"):
                     continue
+                # Debug brut
+                # print("[GPS DEBUG] Trame brute:", line)
 
                 msg = pynmea2.parse(line)
 
+                # ==============================
+                # GGA → fix, altitude, nb satellites
+                # ==============================
                 if isinstance(msg, pynmea2.types.talker.GGA):
                     gps_data.update({
                         "latitude": msg.latitude if msg.gps_qual > 0 else None,
@@ -55,7 +64,11 @@ def read_gps():
                         "timestamp": datetime.utcnow().isoformat(),
                         "fix": msg.gps_qual > 0
                     })
+                    # print("[GPS DEBUG] maj GGA:", gps_data)
 
+                # ==============================
+                # RMC → fix + coordonnées
+                # ==============================
                 elif isinstance(msg, pynmea2.types.talker.RMC):
                     if msg.status == "A":  # Fix actif
                         gps_data.update({
@@ -64,21 +77,20 @@ def read_gps():
                             "timestamp": datetime.utcnow().isoformat(),
                             "fix": True
                         })
+                        # print("[GPS DEBUG] maj RMC:", gps_data)
 
             except Exception as e:
-                print("[GPS ERROR] Parse:", e, line)
+                print(f"[GPS ERROR] Parse: {e} | Trame: {line}")
 
     except Exception as e:
-        print("[GPS ERROR] Impossible d'ouvrir le port:", e)
+        print(f"[GPS ERROR] ❌ Impossible d’ouvrir {GPS_PORT}: {e}")
 
 
 def start_gps_loop():
-    """Lancer la boucle GPS dans un seul thread."""
-    global gps_thread
-    if gps_thread is None or not gps_thread.is_alive():
-        gps_thread = threading.Thread(target=read_gps, daemon=True)
-        gps_thread.start()
-        print("[GPS] Thread lancé")
+    """Lancer la boucle GPS dans un thread."""
+    t = threading.Thread(target=read_gps, daemon=True)
+    t.start()
+    print("[GPS] Thread lancé")
 
 
 def get_gps_data():

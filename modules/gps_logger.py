@@ -11,12 +11,11 @@ LOG_DIR.mkdir(exist_ok=True)
 def log_loop(interval=30):
     """Écrit une ligne GPS seulement si fix valide"""
     print("[GPS_LOGGER] Logger démarré")
-    # S'assurer que la boucle GPS tourne
     start_gps_loop()
 
     while True:
         data = get_gps_data()
-        if not data or not data.get("fix"):
+        if not data.get("fix"):
             print("[GPS_LOGGER] Pas de fix GPS, ligne ignorée")
             time.sleep(interval)
             continue
@@ -28,7 +27,6 @@ def log_loop(interval=30):
             w = csv.writer(f)
             if newfile:
                 w.writerow(["timestamp_utc", "latitude", "longitude", "altitude", "sats", "fix"])
-
             w.writerow([
                 datetime.datetime.utcnow().isoformat(),
                 data["latitude"],
@@ -41,7 +39,5 @@ def log_loop(interval=30):
         print(f"[GPS_LOGGER] ✅ Ligne écrite : {data}")
         time.sleep(interval)
 
-
 if __name__ == "__main__":
-    print("[GPS_LOGGER] 🚀 Démarrage en mode test (intervalle = 5s)")
     log_loop(5)

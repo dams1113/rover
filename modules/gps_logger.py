@@ -7,41 +7,34 @@ from modules.gps_reader import get_gps_data
 LOG_DIR = pathlib.Path("logs")
 LOG_DIR.mkdir(exist_ok=True)
 
-
 def log_loop(interval=30):
-    """Écrit une ligne GPS seulement si fix valide, dans un fichier par jour."""
+    """Écrit une ligne GPS toutes les X secondes si fix valide"""
     while True:
         data = get_gps_data()
+        if not data.get("fix") or data.get("latitude") is None:
+            print("[GPS_LOGGER] ⏳ Pas de fix GPS, ligne ignorée")
+            time.sleep(interval)
+            continue
 
-        # Fichier journalier
         path = LOG_DIR / f"gps_{datetime.date.today()}.csv"
         newfile = not path.exists()
 
-        if data.get("fix") and data.get("latitude") and data.get("longitude"):
-            with path.open("a", newline="") as f:
-                w = csv.writer(f)
-                if newfile:
-                    w.writerow(["timestamp_utc", "latitude", "longitude", "altitude", "sats", "fix"])
-                w.writerow([
-                    datetime.datetime.utcnow().isoformat(),
-                    data.get("latitude"),
-                    data.get("longitude"),
-                    data.get("altitude"),
-                    data.get("satellites"),
-                    data.get("fix"),
-                ])
-            print(f"[GPS_LOGGER] ✅ Ligne écrite : {data}")
-        else:
-            # Assure que le fichier existe même sans fix
+        with path.open("a", newline="") as f:
+            w = csv.writer(f)
             if newfile:
-                with path.open("w", newline="") as f:
-                    w = csv.writer(f)
-                    w.writerow(["timestamp_utc", "latitude", "longitude", "altitude", "sats", "fix"])
-            print("[GPS_LOGGER] ⏸ Pas de fix GPS, ligne ignorée")
+                w.writerow(["timestamp_utc", "latitude", "longitude", "altitude", "sats", "fix"])
+            w.writerow([
+                datetime.datetime.utcnow().isoformat(),
+                data["latitude"],
+                data["longitude"],
+                data["altitude"],
+                data["satellites"],
+                data["fix"],
+            ])
 
+        print(f"[GPS_LOGGER] ✅ Ligne écrite : {data}")
         time.sleep(interval)
 
-
 if __name__ == "__main__":
-    print("[GPS_LOGGER] 🚀 Démarrage en mode test (intervalle = 5s)")
+    print("[GPS_LOGGER] 🔄 Démarrage en mode test (intervalle = 5s)")
     log_loop(5)

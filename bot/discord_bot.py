@@ -4,13 +4,25 @@ import subprocess
 import datetime
 from modules.gps_reader import get_gps_data
 
-TOKEN = os.getenv("DISCORD_TOKEN") or "TON_TOKEN_ICI"
-client = discord.Client(intents=discord.Intents.default())
+# --- Chargement du token ---
+TOKEN_PATH = "/home/rover/rover/bot/token.txt"
+
+TOKEN = None
+if os.path.exists(TOKEN_PATH):
+    with open(TOKEN_PATH, "r") as f:
+        TOKEN = f.read().strip()
+
+if not TOKEN:
+    raise RuntimeError(f"[DISCORD_BOT] ❌ Impossible de charger le token depuis {TOKEN_PATH}")
+
+# --- Discord client ---
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
 
 
 @client.event
 async def on_ready():
-    print(f"[ROVER] Connecté en tant que {client.user}")
+    print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
 
 @client.event
@@ -26,9 +38,11 @@ async def on_message(message):
 
         gps = get_gps_data()
         if gps["fix"]:
-            gps_str = (f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
-                       f"- {gps['satellites']} sats\n"
-                       f"🕒 Fix : {gps['timestamp']}")
+            gps_str = (
+                f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
+                f"- {gps['satellites']} sats\n"
+                f"🕒 Fix : {gps['timestamp']}"
+            )
         else:
             gps_str = "❌ Pas de fix GPS"
 

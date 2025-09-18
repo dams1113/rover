@@ -1,29 +1,24 @@
+# bot/discord_bot.py
 import os
 import discord
 import subprocess
 import datetime
+import psutil
 from modules.gps_reader import get_gps_data
 
-# --- Chargement du token ---
-TOKEN_PATH = "/home/rover/rover/bot/token.txt"
+# Lire le token depuis un fichier
+with open("bot/token.txt") as f:
+    TOKEN = f.read().strip()
 
-TOKEN = None
-if os.path.exists(TOKEN_PATH):
-    with open(TOKEN_PATH, "r") as f:
-        TOKEN = f.read().strip()
-
-if not TOKEN:
-    raise RuntimeError(f"[DISCORD_BOT] ❌ Impossible de charger le token depuis {TOKEN_PATH}")
-
-# --- Discord client ---
+# Intents obligatoires pour lire les messages
 intents = discord.Intents.default()
-client = discord.Client(intents=intents)
+intents.message_content = True
 
+client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
-
 
 @client.event
 async def on_message(message):
@@ -34,19 +29,15 @@ async def on_message(message):
 
     # ---- STATUS ----
     if cmd == "status":
-        import psutil, time
-
         gps = get_gps_data()
         if gps["fix"]:
-            gps_str = (
-                f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
-                f"- {gps['satellites']} sats\n"
-                f"🕒 Fix : {gps['timestamp']}"
-            )
+            gps_str = (f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
+                       f"- {gps['satellites']} sats\n🕒 Fix : {gps['timestamp']}")
         else:
             gps_str = "❌ Pas de fix GPS"
 
-        uptime = datetime.timedelta(seconds=int(time.time() - psutil.boot_time()))
+        # uptime
+        uptime = datetime.timedelta(seconds=int(psutil.boot_time()))
 
         # Température CPU
         cpu_temp = 0.0
@@ -58,11 +49,9 @@ async def on_message(message):
 
         msg = (
             "🤖 **État du Rover**\n"
-            f"🔋 Tension actuelle : 12.6 V\n"
-            f"🔌 Courant actuel : 0.75 A\n"
-            f"🕒 Durée depuis allumage : {uptime}\n"
+            f"🕒 Uptime : {uptime}\n"
             f"🌡 Température CPU : {cpu_temp:.1f}°C\n"
-            f"📍 GPS : {gps_str}\n"
+            f"📍 GPS : {gps_str}"
         )
         await message.channel.send(msg)
 
@@ -77,24 +66,9 @@ async def on_message(message):
                 "--heatmap", "--points",
                 "--in", f"logs/gps_{datetime.date.today()}.csv"
             ], check=True)
-            await message.channel.send("✅ Carte générée : `map/multi_map.html`")
+            await message.channel.send("✅ Carte générée dans `map/multi_map.html`")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
-
-    # ---- UPDATE ----
-    elif cmd == "update":
-        await message.channel.send("📡 Mise à jour en cours...")
-        try:
-            subprocess.run(["bash", "git_update.sh"], check=True)
-            await message.channel.send("✅ Mise à jour terminée, reboot nécessaire.")
-        except subprocess.CalledProcessError as e:
-            await message.channel.send(f"⚠️ Erreur update : {e}")
-
-    # ---- REBOOT ----
-    elif cmd == "reboot":
-        await message.channel.send("🔄 Reboot du Rover...")
-        os.system("sudo reboot")
-
 
 if __name__ == "__main__":
     client.run(TOKEN)

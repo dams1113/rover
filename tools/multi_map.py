@@ -1,14 +1,9 @@
 """
-Superposer un ou plusieurs fichiers CSV GPS sur une carte Folium.
-Chaque trace est une couche distincte + HeatMap/points optionnels.
-
-Usage :
-  python3 tools/multi_map.py --in logs/gps_2025-09-15.csv --out map/multi_map.html --basemap positron --heatmap --points
+Superposer plusieurs fichiers CSV GPS sur une seule carte Folium.
 """
 
 import argparse, pathlib, csv, folium
 from folium.plugins import HeatMap, MarkerCluster
-
 
 def read_points_csv(path):
     pts = []
@@ -27,16 +22,12 @@ def read_points_csv(path):
                     continue
                 ts = row.get("timestamp_utc", "")
                 pts.append((lat, lon, ts))
-    except FileNotFoundError:
-        print(f"[MAP] ⚠️ Fichier introuvable : {path}")
+    except Exception as e:
+        print(f"[MAP] ⚠️ Erreur lecture {path}: {e}")
     return pts
 
 
-def add_basemap(m, basemap, tiles_url=None, tiles_attrib=""):
-    """Ajout du fond de carte"""
-    if tiles_url:
-        folium.TileLayer(tiles=tiles_url, attr=tiles_attrib, name="Custom").add_to(m)
-        return
+def add_basemap(m, basemap):
     if basemap == "positron":
         folium.TileLayer("CartoDB positron", name="CartoDB Positron").add_to(m)
     elif basemap == "dark":
@@ -51,11 +42,9 @@ def add_basemap(m, basemap, tiles_url=None, tiles_attrib=""):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--in", dest="inputs", action="append", required=True, help="CSV(s) à superposer")
-    ap.add_argument("--out", default="map/multi_map.html", help="HTML de sortie")
-    ap.add_argument("--basemap", choices=["osm","positron","dark","terrain","toner"], default="osm")
-    ap.add_argument("--tiles-url")
-    ap.add_argument("--tiles-attrib", default="")
+    ap.add_argument("--in", dest="inputs", action="append", required=True)
+    ap.add_argument("--out", default="map/multi_map.html")
+    ap.add_argument("--basemap", default="osm")
     ap.add_argument("--heatmap", action="store_true")
     ap.add_argument("--points", action="store_true")
     args = ap.parse_args()
@@ -67,13 +56,13 @@ def main():
             all_tracks.append((p, pts))
 
     if not all_tracks:
-        print("[MAP] ⚠️ Aucun point GPS valide trouvé → Carte non générée.")
-        return
+        print("[MAP] ❌ Aucun point GPS valide trouvé")
+        return 1  # <-- on sort proprement
 
-    # Position de départ = premier point valide
+    # Centrage sur le 1er point
     first_lat, first_lon, _ = all_tracks[0][1][0]
     m = folium.Map(location=[first_lat, first_lon], zoom_start=16, control_scale=True)
-    add_basemap(m, args.basemap, args.tiles_url, args.tiles_attrib)
+    add_basemap(m, args.basemap)
 
     colors = ["red","blue","green","purple","orange","pink","gray","black"]
     heat_pts = []
@@ -82,21 +71,17 @@ def main():
         latlons = [(lat, lon) for (lat, lon, _) in pts]
         color = colors[i % len(colors)]
         grp = folium.FeatureGroup(name=f"Trace {i+1}: {pathlib.Path(name).name}", show=True)
-
         folium.PolyLine(latlons, color=color, weight=3, opacity=0.9).add_to(grp)
-        if latlons:
-            folium.Marker(latlons[0], tooltip=f"Départ {i+1}").add_to(grp)
-            folium.Marker(latlons[-1], tooltip=f"Arrivée {i+1}").add_to(grp)
-
+        folium.Marker(latlons[0], tooltip=f"Départ {i+1}").add_to(grp)
+        folium.Marker(latlons[-1], tooltip=f"Arrivée {i+1}").add_to(grp)
         grp.add_to(m)
         heat_pts.extend(latlons)
 
         if args.points:
             cl = MarkerCluster(name=f"Points {i+1}", show=False)
             for (lat, lon, ts) in pts:
-                folium.CircleMarker(location=[lat, lon], radius=2,
-                                    fill=True, fill_opacity=0.9,
-                                    tooltip=ts).add_to(cl)
+                folium.CircleMarker([lat, lon], radius=2,
+                                    fill=True, fill_opacity=0.9, tooltip=ts).add_to(cl)
             cl.add_to(m)
 
     if args.heatmap and heat_pts:
@@ -106,8 +91,8 @@ def main():
     pathlib.Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     m.save(args.out)
     print(f"[MAP] ✅ Carte générée : {args.out}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
-  
+    raise SystemExit(main())

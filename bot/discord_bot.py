@@ -13,10 +13,10 @@ TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 # Client Discord avec INTENTS
 # ==============================
 intents = discord.Intents.default()
-intents.message_content = True   # 🔑 indispensable pour lire les messages
+intents.message_content = True   # 🔑 indispensable
 client = discord.Client(intents=intents)
 
-# Chemin du Python du venv (pour lancer multi_map.py)
+# Chemin du Python du venv
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
 
@@ -31,7 +31,7 @@ async def on_message(message):
         return
 
     cmd = message.content.lower().strip()
-    print(f"[DISCORD] Commande reçue: {cmd}")  # 🔎 log dans journalctl
+    print(f"[DISCORD] Message reçu: {cmd}")  # 🔎 log côté journalctl
 
     # ---- STATUS ----
     if cmd == "status":
@@ -91,6 +91,9 @@ async def on_message(message):
     elif cmd == "reboot":
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
+
+    else:
+        await message.channel.send("⚠️ Commande non reconnue")  # 🔎 debug
 
 
 if __name__ == "__main__":

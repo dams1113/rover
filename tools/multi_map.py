@@ -1,9 +1,11 @@
 """
 Superposer plusieurs fichiers CSV GPS sur une seule carte Folium.
+Compatible avec les fichiers gps_YYYY-MM-DD.csv générés par gps_logger.
 """
 
 import argparse, pathlib, csv, folium
 from folium.plugins import HeatMap, MarkerCluster
+
 
 def read_points_csv(path):
     pts = []
@@ -11,8 +13,8 @@ def read_points_csv(path):
         with open(path, newline="") as f:
             r = csv.DictReader(f)
             for row in r:
-                lat = row.get("latitude") or row.get("latitude_filt")
-                lon = row.get("longitude") or row.get("longitude_filt")
+                lat = row.get("latitude")
+                lon = row.get("longitude")
                 if not lat or not lon:
                     continue
                 try:
@@ -57,7 +59,7 @@ def main():
 
     if not all_tracks:
         print("[MAP] ❌ Aucun point GPS valide trouvé")
-        return 1  # <-- on sort proprement
+        return 1
 
     # Centrage sur le 1er point
     first_lat, first_lon, _ = all_tracks[0][1][0]

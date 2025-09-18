@@ -4,13 +4,19 @@ import subprocess
 import datetime
 from modules.gps_reader import get_gps_data
 
-# Ton token
+# ==============================
+# Chargement du token
+# ==============================
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 
-# Client Discord
-client = discord.Client(intents=discord.Intents.default())
+# ==============================
+# Client Discord avec INTENTS
+# ==============================
+intents = discord.Intents.default()
+intents.message_content = True   # 🔑 indispensable pour lire les messages
+client = discord.Client(intents=intents)
 
-# Chemin du python du venv
+# Chemin du Python du venv (pour lancer multi_map.py)
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
 
@@ -25,6 +31,7 @@ async def on_message(message):
         return
 
     cmd = message.content.lower().strip()
+    print(f"[DISCORD] Commande reçue: {cmd}")  # 🔎 log dans journalctl
 
     # ---- STATUS ----
     if cmd == "status":

@@ -4,26 +4,20 @@ import subprocess
 import datetime
 from modules.gps_reader import get_gps_data
 
-# ==============================
-# Chargement du token
-# ==============================
+# Charger le token
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 
-# ==============================
-# Client Discord avec INTENTS
-# ==============================
+# Activer les intents nécessaires
 intents = discord.Intents.default()
-intents.message_content = True   # 🔑 indispensable
+intents.message_content = True  # <== OBLIGATOIRE pour lire "status" ou "map"
+
 client = discord.Client(intents=intents)
 
-# Chemin du Python du venv
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
-
 
 @client.event
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
-
 
 @client.event
 async def on_message(message):
@@ -31,12 +25,11 @@ async def on_message(message):
         return
 
     cmd = message.content.lower().strip()
-    print(f"[DISCORD] Message reçu: {cmd}")  # 🔎 log côté journalctl
+    print(f"[DISCORD] Message reçu: {cmd}")  # debug log
 
     # ---- STATUS ----
     if cmd == "status":
         import psutil, time
-
         gps = get_gps_data()
         if gps["fix"]:
             gps_str = (f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
@@ -47,7 +40,6 @@ async def on_message(message):
 
         uptime = datetime.timedelta(seconds=int(time.time() - psutil.boot_time()))
 
-        # Température CPU
         cpu_temp = 0.0
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as f:
@@ -78,7 +70,6 @@ async def on_message(message):
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
 
-    # ---- UPDATE ----
     elif cmd == "update":
         await message.channel.send("📡 Mise à jour en cours...")
         try:
@@ -87,14 +78,9 @@ async def on_message(message):
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur update : {e}")
 
-    # ---- REBOOT ----
     elif cmd == "reboot":
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
-
-    else:
-        await message.channel.send("⚠️ Commande non reconnue")  # 🔎 debug
-
 
 if __name__ == "__main__":
     client.run(TOKEN)

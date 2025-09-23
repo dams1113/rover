@@ -1,7 +1,10 @@
+# bot/discord_bot.py
 import os
 import discord
 import subprocess
 import datetime
+import psutil
+import time
 from modules.gps_reader import get_gps_data
 
 # Charger le token
@@ -9,8 +12,7 @@ TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 
 # Activer les intents nécessaires
 intents = discord.Intents.default()
-intents.message_content = True  # <== OBLIGATOIRE pour lire "status" ou "map"
-
+intents.message_content = True  # Obligatoire pour lire les messages
 client = discord.Client(intents=intents)
 
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
@@ -29,12 +31,13 @@ async def on_message(message):
 
     # ---- STATUS ----
     if cmd == "status":
-        import psutil, time
         gps = get_gps_data()
-        if gps["fix"]:
-            gps_str = (f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
-                       f"- {gps['satellites']} sats\n"
-                       f"🕒 Fix : {gps['timestamp']}")
+        if gps and gps.get("fix"):
+            gps_str = (
+                f"{gps['latitude']}, {gps['longitude']} alt. {gps['altitude']}m "
+                f"- {gps['satellites']} sats\n"
+                f"🕒 Fix : {gps['timestamp']}"
+            )
         else:
             gps_str = "❌ Pas de fix GPS"
 
@@ -44,7 +47,7 @@ async def on_message(message):
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as f:
                 cpu_temp = int(f.read()) / 1000.0
-        except:
+        except Exception:
             pass
 
         msg = (
@@ -70,14 +73,16 @@ async def on_message(message):
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
 
+    # ---- UPDATE ----
     elif cmd == "update":
         await message.channel.send("📡 Mise à jour en cours...")
         try:
             subprocess.run(["bash", "git_update.sh"], check=True)
-            await message.channel.send("✅ Mise à jour terminée, reboot nécessaire.")
+            await message.channel.send("✅ Mise à jour terminée. Utilise `reboot` si nécessaire.")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur update : {e}")
 
+    # ---- REBOOT ----
     elif cmd == "reboot":
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")

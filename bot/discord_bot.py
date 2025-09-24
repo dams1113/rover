@@ -8,21 +8,22 @@ import time
 from modules.gps_reader import get_gps_data
 from modules import motors
 from modules import autonomy
+from modules import navigation
 
 # Charger le token
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 
-# Activer les intents nécessaires
+# Intents Discord
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
+# Chemin Python venv
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
+# -------- Utils ----------
 def _parse_args(parts, default_sec=2.0, default_speed=50):
-    """
-    Ex: ["FORWARD", "3", "70"] -> (3.0, 70)
-    """
+    """Analyse les arguments de commande (durée + vitesse)."""
     sec = None
     spd = None
     if len(parts) >= 2:
@@ -37,6 +38,7 @@ def _parse_args(parts, default_sec=2.0, default_speed=50):
             spd = default_speed
     return sec or default_sec, spd or default_speed
 
+# -------- Events ----------
 @client.event
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
@@ -66,7 +68,6 @@ async def on_message(message):
             gps_str = "❌ Pas de fix GPS"
 
         uptime = datetime.timedelta(seconds=int(time.time() - psutil.boot_time()))
-
         cpu_temp = 0.0
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as f:
@@ -150,5 +151,23 @@ async def on_message(message):
         else:
             await message.channel.send("Usage: `AUTO START` | `AUTO STOP` | `AUTO STATUS`")
 
-if __name__ == "__main__":
+    # ---- NAVIGATION GPS ----
+    elif cmd == "GOTO":
+        if len(parts) >= 3:
+            try:
+                lat = float(parts[1])
+                lon = float(parts[2])
+                await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
+                success = navigation.goto(lat, lon)
+                if success:
+                    await message.channel.send("✅ Objectif atteint !")
+                else:
+                    await message.channel.send("⚠️ Navigation interrompue")
+            except ValueError:
+                await message.channel.send("❌ Format invalide. Exemple: `GOTO 42.1234 2.5678`")
+        else:
+            await message.channel.send("❌ Utilisation: `GOTO lat lon`")
+
+# -------- Run ----------
+def run_discord_bot():
     client.run(TOKEN)

@@ -4,11 +4,12 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/rover/rover
-ExecStart=/home/rover/rover/.venv/bin/python -m bot.discord_bot
-Restart=always
 User=rover
-Environment="PYTHONUNBUFFERED=1"
+WorkingDirectory=/home/rover/rover
+ExecStart=/home/rover/rover/.venv/bin/python /home/rover/rover/main.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target

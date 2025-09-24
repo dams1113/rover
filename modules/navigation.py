@@ -2,9 +2,11 @@
 import math
 import time
 from modules import gps_reader, motors
+from robot_hat import Ultrasonic
 
 # Rayon moyen de la Terre en mètres
-EARTH_RADIUS = 6371000  
+EARTH_RADIUS = 6371000
+ultra = Ultrasonic()
 
 def haversine(lat1, lon1, lat2, lon2):
     """Distance en mètres entre 2 coordonnées GPS (lat/lon en degrés)."""
@@ -22,12 +24,13 @@ def bearing(lat1, lon1, lat2, lon2):
     x = math.cos(phi1)*math.sin(phi2) - math.sin(phi1)*math.cos(phi2)*math.cos(dlambda)
     return (math.degrees(math.atan2(y, x)) + 360) % 360
 
-def goto(lat_target, lon_target, tolerance=2.0, step_time=1.5):
+def goto(lat_target, lon_target, tolerance=2.0, step_time=1.0, obstacle_cm=20):
     """
-    Déplace le rover vers une coordonnée GPS cible.
+    Déplace le rover vers une coordonnée GPS cible avec évitement d'obstacles.
     - lat_target, lon_target : cible en degrés
-    - tolerance : rayon de tolérance (m)
-    - step_time : durée des pas en secondes
+    - tolerance : rayon d’arrivée en mètres
+    - step_time : durée des pas d’avance en secondes
+    - obstacle_cm : distance de détection obstacle
     """
     print(f"[GOTO] Navigation vers {lat_target}, {lon_target} (tolérance {tolerance} m)")
 
@@ -46,15 +49,22 @@ def goto(lat_target, lon_target, tolerance=2.0, step_time=1.5):
             print("🎯 Objectif atteint")
             return True
 
-        # Sans boussole : stratégie simpliste
+        # Vérification ultrason
+        d = ultra.read()
+        if d and d < obstacle_cm:
+            print(f"[GOTO] ⚠️ Obstacle détecté à {d} cm → évitement")
+            motors.stop()
+            motors.turn_left(speed=50, duration=0.8)
+            time.sleep(0.5)
+            continue
+
+        # Sinon avancer vers la cible
         az = bearing(lat, lon, lat_target, lon_target)
         print(f"[GOTO] 📍 Position: {lat:.6f}, {lon:.6f}")
         print(f"[GOTO] 🎯 Distance: {dist:.1f} m | Azimut cible: {az:.1f}°")
 
-        # Avance par petits pas
         motors.forward(speed=50, duration=step_time)
         time.sleep(step_time)
 
-        # Stop pour laisser le temps de recalculer
         motors.stop()
-        time.sleep(0.5)
+        time.sleep(0.2)

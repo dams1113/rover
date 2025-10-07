@@ -43,38 +43,43 @@ def _parse_args(parts, default_sec=2.0, default_speed=50):
     return sec, spd
 
 
-# -------- Events ----------
+# -------- EVENTS ----------
 @client.event
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
-    # 🔗 Canal de télémétrie automatique
-    target_channel_name = "rover-server"  # <-- Remplace par ton salon Discord exact
+    # --- Canal de télémétrie ---
+    target_channel_name = "rover-server"  # ⚠️ Mets ici le nom exact du salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
             print(f"[Arduino] Télémétrie connectée au canal : {ch.name}")
             break
 
-    # Démarre la boucle de lecture série Arduino
+    # --- Lancer la boucle de télémétrie ---
     asyncio.get_event_loop().create_task(telemetry_loop())
 
 
+# -------- LECTURE ARDUINO --------
 async def telemetry_loop():
-    """Boucle d'écoute des messages Arduino et publication Discord."""
+    """Lit en continu la télémétrie Arduino et l’envoie dans Discord."""
     await client.wait_until_ready()
-    channel = arduino_link.discord_channel
+    channel = None
     while not client.is_closed():
+        if not channel:
+            channel = arduino_link.discord_channel
+
         line = arduino_link.read_line()
         if line and channel:
             try:
-                # Exemple de ligne : "BAT:87%;DIST:32.5cm;IR_L:1;IR_R:0"
+                # Exemple : "BAT:87%;DIST:32.5cm;IR_L:1;IR_R:0"
                 parts = {p.split(":")[0]: p.split(":")[1] for p in line.split(";") if ":" in p}
                 bat = parts.get("BAT", "?")
                 dist = parts.get("DIST", "?")
                 ir_l = parts.get("IR_L", "?")
                 ir_r = parts.get("IR_R", "?")
 
+                # Couleur selon distance
                 dist_val = float(dist.replace("cm", "")) if "cm" in dist else -1
                 if dist_val >= 0:
                     if dist_val < 10:
@@ -94,10 +99,12 @@ async def telemetry_loop():
                 )
                 await channel.send(msg)
             except Exception as e:
-                print(f"[Arduino] ⚠️ Erreur format : {e} - {line}")
+                print(f"[Arduino] ⚠️ Erreur de format : {e} - {line}")
+
         await asyncio.sleep(2)
 
 
+# -------- COMMANDES DISCORD --------
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -167,7 +174,7 @@ async def on_message(message):
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
 
-    # ---- MOUVEMENTS ----
+    # ---- COMMANDES MOTEURS ----
     elif cmd == "FORWARD":
         sec, spd = _parse_args(parts, 2.0, 55)
         motors.forward(speed=spd, duration=sec)
@@ -211,7 +218,7 @@ async def on_message(message):
         else:
             await message.channel.send("Usage: `AUTO START` | `AUTO STOP` | `AUTO STATUS`")
 
-    # ---- NAVIGATION ----
+    # ---- NAVIGATION GPS ----
     elif cmd == "GOTO":
         if len(parts) >= 3:
             try:
@@ -219,7 +226,10 @@ async def on_message(message):
                 lon = float(parts[2])
                 await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
                 success = navigation.goto(lat, lon)
-                await message.channel.send("✅ Objectif atteint !" if success else "⚠️ Navigation interrompue")
+                if success:
+                    await message.channel.send("✅ Objectif atteint !")
+                else:
+                    await message.channel.send("⚠️ Navigation interrompue")
             except ValueError:
                 await message.channel.send("❌ Format invalide. Exemple: `GOTO 42.1234 2.5678`")
         else:

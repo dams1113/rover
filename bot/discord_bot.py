@@ -5,38 +5,40 @@ import datetime
 import psutil
 import time
 
+# --- Modules internes ---
 from modules.gps_reader import get_gps_data
 from modules import motors
 from modules import autonomy
 from modules import navigation
+from modules.arduino_link import send_cmd  # 🔗 Communication Arduino
 
-# Charger le token
+# --- Token Discord ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 
-# Intents Discord
+# --- Intents Discord ---
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# Chemin Python venv
+# --- Chemin Python (venv) ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
 # -------- Utils ----------
 def _parse_args(parts, default_sec=2.0, default_speed=50):
     """Analyse les arguments de commande (durée + vitesse)."""
-    sec = None
-    spd = None
+    sec = default_sec
+    spd = default_speed
     if len(parts) >= 2:
         try:
             sec = float(parts[1])
-        except:
-            sec = default_sec
+        except ValueError:
+            pass
     if len(parts) >= 3:
         try:
             spd = int(parts[2])
-        except:
-            spd = default_speed
-    return sec or default_sec, spd or default_speed
+        except ValueError:
+            pass
+    return sec, spd
 
 # -------- Events ----------
 @client.event
@@ -112,29 +114,34 @@ async def on_message(message):
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
 
-    # ---- COMMANDES MOTEURS ----
+    # ---- COMMANDES MOTEURS (Pi local) ----
     elif cmd == "FORWARD":
         sec, spd = _parse_args(parts, default_sec=2.0, default_speed=55)
         motors.forward(speed=spd, duration=sec)
+        send_cmd("F")  # 🔗 Envoi aussi à l’Arduino
         await message.channel.send(f"🚙 Avance {sec}s @ {spd}%")
 
     elif cmd == "BACKWARD":
         sec, spd = _parse_args(parts, default_sec=2.0, default_speed=50)
         motors.backward(speed=spd, duration=sec)
+        send_cmd("B")
         await message.channel.send(f"↩️ Recule {sec}s @ {spd}%")
 
     elif cmd == "LEFT":
         sec, spd = _parse_args(parts, default_sec=1.0, default_speed=55)
         motors.turn_left(speed=spd, duration=sec)
+        send_cmd("L")
         await message.channel.send(f"↪️ Gauche {sec}s @ {spd}%")
 
     elif cmd == "RIGHT":
         sec, spd = _parse_args(parts, default_sec=1.0, default_speed=55)
         motors.turn_right(speed=spd, duration=sec)
+        send_cmd("R")
         await message.channel.send(f"↩️ Droite {sec}s @ {spd}%")
 
     elif cmd == "STOP":
         motors.stop()
+        send_cmd("S")
         await message.channel.send("🛑 Stop")
 
     # ---- AUTONOMIE ----

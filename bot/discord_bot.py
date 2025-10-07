@@ -9,7 +9,6 @@ import asyncio
 # --- Modules internes ---
 from modules.gps_reader import get_gps_data
 from modules import motors
-from modules import autonomy
 from modules import navigation
 from modules import arduino_link
 
@@ -23,7 +22,6 @@ client = discord.Client(intents=intents)
 
 # --- Chemin Python (venv) ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
-
 
 # -------- Utils ----------
 def _parse_args(parts, default_sec=2.0, default_speed=50):
@@ -48,23 +46,24 @@ def _parse_args(parts, default_sec=2.0, default_speed=50):
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
-    # --- Canal de télémétrie ---
-    target_channel_name = "rover-server"  # ⚠️ Mets ici le nom exact du salon Discord
+    # --- Canal Discord pour la télémétrie Arduino ---
+    target_channel_name = "rover-server"  # ⚠️ nom exact de ton salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
             print(f"[Arduino] Télémétrie connectée au canal : {ch.name}")
             break
 
-    # --- Lancer la boucle de télémétrie ---
+    # --- Lancer la boucle d'écoute série ---
     asyncio.get_event_loop().create_task(telemetry_loop())
 
 
-# -------- LECTURE ARDUINO --------
+# -------- LECTURE ARDUINO / TÉLÉMÉTRIE --------
 async def telemetry_loop():
-    """Lit en continu la télémétrie Arduino et l’envoie dans Discord."""
+    """Lit en continu la télémétrie Arduino et envoie les infos dans Discord."""
     await client.wait_until_ready()
     channel = None
+
     while not client.is_closed():
         if not channel:
             channel = arduino_link.discord_channel
@@ -79,7 +78,7 @@ async def telemetry_loop():
                 ir_l = parts.get("IR_L", "?")
                 ir_r = parts.get("IR_R", "?")
 
-                # Couleur selon distance
+                # Couleur distance
                 dist_val = float(dist.replace("cm", "")) if "cm" in dist else -1
                 if dist_val >= 0:
                     if dist_val < 10:
@@ -99,7 +98,7 @@ async def telemetry_loop():
                 )
                 await channel.send(msg)
             except Exception as e:
-                print(f"[Arduino] ⚠️ Erreur de format : {e} - {line}")
+                print(f"[Arduino] ⚠️ Erreur parsing télémétrie : {e} - {line}")
 
         await asyncio.sleep(2)
 
@@ -117,8 +116,25 @@ async def on_message(message):
     parts = raw.split()
     cmd = parts[0].upper()
 
+    # ---- HELP ----
+    if cmd == "HELP":
+        help_text = (
+            "🤖 **Commandes disponibles**\n"
+            "`STATUS` → État du Rover (CPU, GPS...)\n"
+            "`MAP` → Génère la carte du jour\n"
+            "`UPDATE` → Met à jour le code\n"
+            "`REBOOT` → Redémarre le Raspberry Pi\n"
+            "`FORWARD [sec] [vitesse]` → Avance\n"
+            "`BACKWARD [sec] [vitesse]` → Recule\n"
+            "`LEFT [sec] [vitesse]` → Tourne à gauche\n"
+            "`RIGHT [sec] [vitesse]` → Tourne à droite\n"
+            "`STOP` → Arrête le Rover\n"
+            "`GOTO lat lon` → Navigation GPS\n"
+        )
+        await message.channel.send(help_text)
+
     # ---- STATUS ----
-    if cmd == "STATUS":
+    elif cmd == "STATUS":
         gps = get_gps_data()
         if gps and gps.get("fix"):
             gps_str = (
@@ -204,20 +220,6 @@ async def on_message(message):
         arduino_link.send_cmd("S")
         await message.channel.send("🛑 Stop")
 
-    # ---- AUTONOMIE ----
-    elif cmd == "AUTO":
-        sub = parts[1].upper() if len(parts) > 1 else ""
-        if sub == "START":
-            autonomy.auto_start()
-            await message.channel.send(f"🤖 Autonomie démarrée ({autonomy.auto_status()})")
-        elif sub == "STOP":
-            autonomy.auto_stop()
-            await message.channel.send(f"🧠 Autonomie arrêtée ({autonomy.auto_status()})")
-        elif sub == "STATUS":
-            await message.channel.send(f"ℹ️ Autonomie: {autonomy.auto_status()}")
-        else:
-            await message.channel.send("Usage: `AUTO START` | `AUTO STOP` | `AUTO STATUS`")
-
     # ---- NAVIGATION GPS ----
     elif cmd == "GOTO":
         if len(parts) >= 3:
@@ -226,10 +228,7 @@ async def on_message(message):
                 lon = float(parts[2])
                 await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
                 success = navigation.goto(lat, lon)
-                if success:
-                    await message.channel.send("✅ Objectif atteint !")
-                else:
-                    await message.channel.send("⚠️ Navigation interrompue")
+                await message.channel.send("✅ Objectif atteint !" if success else "⚠️ Navigation interrompue")
             except ValueError:
                 await message.channel.send("❌ Format invalide. Exemple: `GOTO 42.1234 2.5678`")
         else:

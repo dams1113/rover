@@ -21,7 +21,7 @@ def _distance(lat1, lon1, lat2, lon2):
 
 
 def _bearing(lat1, lon1, lat2, lon2):
-    """Calcule l’angle de cap entre deux coordonnées."""
+    """Calcule le cap (angle) entre deux points GPS."""
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlambda = math.radians(lon2 - lon1)
     y = math.sin(dlambda) * math.cos(phi2)
@@ -32,7 +32,7 @@ def _bearing(lat1, lon1, lat2, lon2):
 def goto(target_lat, target_lon, tolerance=2.5):
     """
     Déplace le rover jusqu’à la position GPS donnée.
-    Le capteur ultrason / IR est géré par l’Arduino (télémétrie série).
+    (Les capteurs sont gérés par l’Arduino, télémétrie série)
     """
     print(f"[NAV] 🚀 Navigation vers {target_lat}, {target_lon}")
 
@@ -51,7 +51,7 @@ def goto(target_lat, target_lon, tolerance=2.5):
         print("[NAV] ✅ Déjà sur la position cible.")
         return True
 
-    # Avance tant que la distance est supérieure à la tolérance
+    # Boucle de déplacement
     while distance > tolerance:
         gps = get_gps_data()
         if not gps or not gps.get("fix"):
@@ -65,17 +65,16 @@ def goto(target_lat, target_lon, tolerance=2.5):
         distance = _distance(current_lat, current_lon, target_lat, target_lon)
         print(f"[NAV] 📍 Distance restante : {distance:.2f} m")
 
-        # Mouvement avant
+        # Mouvement en avant
         motors.forward(speed=50, duration=1)
         arduino_link.send_cmd("F")
         time.sleep(1)
 
-        # Arrêt et nouvelle mesure
+        # Arrêt et attente mesure suivante
         motors.stop()
         arduino_link.send_cmd("S")
         time.sleep(0.5)
 
-        # Si la distance ne diminue pas, tentative d’ajustement
         if distance < tolerance:
             break
 

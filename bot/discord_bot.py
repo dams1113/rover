@@ -32,7 +32,7 @@ async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
     # --- Canal Discord pour la télémétrie ---
-    target_channel_name = "rover-server"  # ⚠️ ton salon Discord
+    target_channel_name = "rover-server"  # ⚠️ ton salon Discord exact
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
@@ -56,12 +56,13 @@ async def telemetry_loop():
 
         line = arduino_link.read_line()
         if line:
-            last_telemetry = line
+            # Nettoie les caractères parasites et garde la dernière ligne
+            clean_line = line.encode('ascii', 'ignore').decode().strip()
+            last_telemetry = clean_line
 
         if line and channel:
             try:
-                # Décodage simple de la ligne
-                parts = {p.split(":")[0]: p.split(":")[1] for p in line.split(";") if ":" in p}
+                parts = {p.split(":")[0]: p.split(":")[1] for p in clean_line.split(";") if ":" in p}
                 bat = parts.get("BAT", "?")
                 dist = parts.get("DIST", "?")
                 ir_l = parts.get("IR_L", "?")
@@ -111,7 +112,7 @@ async def on_message(message):
     if cmd == "HELP":
         help_text = (
             "🤖 **Commandes disponibles**\n"
-            "`STATUS` → État complet du Rover\n"
+            "`STATUS` → État complet du Rover (CPU, GPS, Batterie...)\n"
             "`MAP` → Génère la carte GPS du jour\n"
             "`UPDATE` → Met à jour le code\n"
             "`REBOOT` → Redémarre le Raspberry Pi\n"
@@ -141,18 +142,19 @@ async def on_message(message):
         except Exception:
             pass
 
-        # --- Extraction automatique de la batterie (%, ou tension)
+        # --- Extraction robuste de la batterie
         bat_val = "Inconnue"
         if last_telemetry:
             try:
-                match_pct = re.search(r"BAT[:=]\s*(\d{1,3})\s*%", last_telemetry)
-                match_v = re.search(r"BAT[:=]\s*(\d{1,2}\.\d{1,2})\s*V", last_telemetry)
+                clean_line = last_telemetry.encode('ascii', 'ignore').decode().strip()
+                match_pct = re.search(r"BAT[:=]\s*(\d{1,3})\s*%", clean_line)
+                match_v = re.search(r"BAT[:=]\s*(\d{1,2}\.\d{1,2})\s*V", clean_line)
                 if match_pct:
                     bat_val = f"{match_pct.group(1)}%"
                 elif match_v:
                     bat_val = f"{match_v.group(1)}V"
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"[STATUS] ⚠️ Erreur extraction batterie : {e}")
 
         msg = (
             "🤖 **État du Rover**\n"

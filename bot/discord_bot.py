@@ -15,7 +15,7 @@ PORT_ARDUINO = "/dev/ttyUSB0"         # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
 READ_INTERVAL = 10.0                   # lecture série (secondes)
 SEND_INTERVAL = 3600                   # délai min entre télémétries (1h)
-SEUIL_DIST = 1.0                       # seuil de tolérance en cm
+SEUIL_DIST = 3.0                       # seuil de tolérance en cm
 SEUIL_BAT = 1.0                        # seuil de tolérance en %
 
 # --- Discord ---

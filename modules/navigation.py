@@ -1,70 +1,85 @@
-# modules/navigation.py
+"""
+navigation.py - Contrôle GPS et navigation du Rover
+Version adaptée sans dépendance à robot_hat (Arduino gère les capteurs)
+"""
+
 import math
 import time
-from modules import gps_reader, motors
-from robot_hat import Ultrasonic
+from modules.gps_reader import get_gps_data
+from modules import motors
+from modules import arduino_link
 
-# Rayon moyen de la Terre en mètres
-EARTH_RADIUS = 6371000
-ultra = Ultrasonic()
 
-def haversine(lat1, lon1, lat2, lon2):
-    """Distance en mètres entre 2 coordonnées GPS (lat/lon en degrés)."""
+def _distance(lat1, lon1, lat2, lon2):
+    """Calcule la distance entre deux points GPS en mètres."""
+    R = 6371000  # rayon Terre (m)
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
-    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-    return 2 * EARTH_RADIUS * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
-def bearing(lat1, lon1, lat2, lon2):
-    """Azimut en degrés depuis le point 1 vers le point 2."""
+
+def _bearing(lat1, lon1, lat2, lon2):
+    """Calcule l’angle de cap entre deux coordonnées."""
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dlambda = math.radians(lon2 - lon1)
     y = math.sin(dlambda) * math.cos(phi2)
-    x = math.cos(phi1)*math.sin(phi2) - math.sin(phi1)*math.cos(phi2)*math.cos(dlambda)
+    x = math.cos(phi1) * math.sin(phi2) - math.sin(phi1) * math.cos(phi2) * math.cos(dlambda)
     return (math.degrees(math.atan2(y, x)) + 360) % 360
 
-def goto(lat_target, lon_target, tolerance=2.0, step_time=1.0, obstacle_cm=20):
-    """
-    Déplace le rover vers une coordonnée GPS cible avec évitement d'obstacles.
-    - lat_target, lon_target : cible en degrés
-    - tolerance : rayon d’arrivée en mètres
-    - step_time : durée des pas d’avance en secondes
-    - obstacle_cm : distance de détection obstacle
-    """
-    print(f"[GOTO] Navigation vers {lat_target}, {lon_target} (tolérance {tolerance} m)")
 
-    while True:
-        gps = gps_reader.get_gps_data()
+def goto(target_lat, target_lon, tolerance=2.5):
+    """
+    Déplace le rover jusqu’à la position GPS donnée.
+    Le capteur ultrason / IR est géré par l’Arduino (télémétrie série).
+    """
+    print(f"[NAV] 🚀 Navigation vers {target_lat}, {target_lon}")
+
+    gps = get_gps_data()
+    if not gps or not gps.get("fix"):
+        print("[NAV] ❌ Pas de fix GPS — navigation impossible.")
+        return False
+
+    current_lat = gps["latitude"]
+    current_lon = gps["longitude"]
+
+    distance = _distance(current_lat, current_lon, target_lat, target_lon)
+    print(f"[NAV] Distance initiale : {distance:.2f} m")
+
+    if distance < tolerance:
+        print("[NAV] ✅ Déjà sur la position cible.")
+        return True
+
+    # Avance tant que la distance est supérieure à la tolérance
+    while distance > tolerance:
+        gps = get_gps_data()
         if not gps or not gps.get("fix"):
-            print("[GOTO] ❌ Pas de fix GPS...")
-            time.sleep(2)
-            continue
-
-        lat, lon = gps["latitude"], gps["longitude"]
-        dist = haversine(lat, lon, lat_target, lon_target)
-
-        if dist < tolerance:
+            print("[NAV] ⚠️ GPS perdu, arrêt.")
             motors.stop()
-            print("🎯 Objectif atteint")
-            return True
+            arduino_link.send_cmd("S")
+            return False
 
-        # Vérification ultrason
-        d = ultra.read()
-        if d and d < obstacle_cm:
-            print(f"[GOTO] ⚠️ Obstacle détecté à {d} cm → évitement")
-            motors.stop()
-            motors.turn_left(speed=50, duration=0.8)
-            time.sleep(0.5)
-            continue
+        current_lat = gps["latitude"]
+        current_lon = gps["longitude"]
+        distance = _distance(current_lat, current_lon, target_lat, target_lon)
+        print(f"[NAV] 📍 Distance restante : {distance:.2f} m")
 
-        # Sinon avancer vers la cible
-        az = bearing(lat, lon, lat_target, lon_target)
-        print(f"[GOTO] 📍 Position: {lat:.6f}, {lon:.6f}")
-        print(f"[GOTO] 🎯 Distance: {dist:.1f} m | Azimut cible: {az:.1f}°")
+        # Mouvement avant
+        motors.forward(speed=50, duration=1)
+        arduino_link.send_cmd("F")
+        time.sleep(1)
 
-        motors.forward(speed=50, duration=step_time)
-        time.sleep(step_time)
-
+        # Arrêt et nouvelle mesure
         motors.stop()
-        time.sleep(0.2)
+        arduino_link.send_cmd("S")
+        time.sleep(0.5)
+
+        # Si la distance ne diminue pas, tentative d’ajustement
+        if distance < tolerance:
+            break
+
+    print("[NAV] ✅ Objectif atteint !")
+    motors.stop()
+    arduino_link.send_cmd("S")
+    return True

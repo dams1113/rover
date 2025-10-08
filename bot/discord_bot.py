@@ -13,8 +13,8 @@ TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"  # salon Discord
 PORT_ARDUINO = "/dev/ttyUSB0"  # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
-READ_INTERVAL = 1.0            # lecture série (secondes)
-SEND_INTERVAL = 60             # délai min entre télémétries
+READ_INTERVAL = 10.0            # lecture série (secondes)
+SEND_INTERVAL = 3600            # délai min entre télémétries
 
 # --- Discord ---
 intents = discord.Intents.default()

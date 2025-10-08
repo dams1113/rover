@@ -11,10 +11,10 @@ import serial
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"  # salon Discord
-PORT_ARDUINO = "/dev/ttyUSB0"  # Arduino (moteurs + caméra)
+PORT_ARDUINO = "/dev/ttyUSB0"        # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
-READ_INTERVAL = 10.0            # lecture série (secondes)
-SEND_INTERVAL = 3600            # délai min entre télémétries
+READ_INTERVAL = 10.0                  # lecture série (secondes)
+SEND_INTERVAL = 3600                  # délai min entre télémétries (1h)
 
 # --- Discord ---
 intents = discord.Intents.default()
@@ -35,6 +35,7 @@ last_sent_time = 0
 
 # --- PATH PYTHON ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
+
 
 # -------- EVENTS ----------
 @client.event
@@ -64,8 +65,7 @@ async def serial_reader():
                     await asyncio.sleep(READ_INTERVAL)
                     continue
 
-                # affichage console
-                print(f"[SERIAL] {line}")
+                print(f"[SERIAL] {line}")  # affichage terminal
 
                 # réponse directe Arduino (cmd: ...)
                 if line.startswith("CMD:") and channel:
@@ -74,7 +74,13 @@ async def serial_reader():
                 # Télémétrie (BAT / DIST / IR)
                 if "BAT:" in line:
                     now = time.time()
-                    if line != last_line or (now - last_sent_time) > SEND_INTERVAL:
+
+                    # --- condition d’envoi ---
+                    # 1️⃣ si changement de trame
+                    # 2️⃣ ou si délai écoulé (1h par défaut)
+                    if (line != last_line and (now - last_sent_time) > READ_INTERVAL) \
+                       or (now - last_sent_time) > SEND_INTERVAL:
+
                         last_line = line
                         last_sent_time = now
 
@@ -84,15 +90,19 @@ async def serial_reader():
                         ir_r = re.search(r"IR_R[:=]\s*(\d)", line)
 
                         msg = "📡 **Télémétrie Arduino**\n"
-                        if bat:  msg += f"🔋 Batterie : `{bat.group(1)}`\n"
-                        if dist: msg += f"📏 Distance : `{dist.group(1)}`\n"
+                        if bat:
+                            msg += f"🔋 Batterie : `{bat.group(1)}`\n"
+                        if dist:
+                            msg += f"📏 Distance : `{dist.group(1)}`\n"
                         if ir_l and ir_r:
                             msg += f"👁️ IR Gauche : `{ir_l.group(1)}` | Droite : `{ir_r.group(1)}`"
 
                         if channel:
                             await channel.send(msg)
+
             except Exception as e:
                 print(f"[SERIAL] ⚠️ Erreur lecture : {e}")
+
         await asyncio.sleep(READ_INTERVAL)
 
 
@@ -113,7 +123,7 @@ async def on_message(message):
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
             "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `GOTO lat lon`\n"
-            "🧭 **Infos :** Télémétrie automatique toutes les 30 s ou si changement\n"
+            "🧭 **Infos :** Télémétrie automatique toutes les 60 min ou si changement\n"
             "💬 **Exemple :** `AVANCE` ou `CAM GAUCHE`\n"
         )
         return

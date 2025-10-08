@@ -11,10 +11,12 @@ import serial
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"  # salon Discord
-PORT_ARDUINO = "/dev/ttyUSB0"        # Arduino (moteurs + caméra)
+PORT_ARDUINO = "/dev/ttyUSB0"         # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
-READ_INTERVAL = 10.0                  # lecture série (secondes)
-SEND_INTERVAL = 3600                  # délai min entre télémétries (1h)
+READ_INTERVAL = 10.0                   # lecture série (secondes)
+SEND_INTERVAL = 3600                   # délai min entre télémétries (1h)
+SEUIL_DIST = 1.0                       # seuil de tolérance en cm
+SEUIL_BAT = 1.0                        # seuil de tolérance en %
 
 # --- Discord ---
 intents = discord.Intents.default()
@@ -51,7 +53,7 @@ async def on_ready():
 
 # -------- LECTURE SÉRIE --------
 async def serial_reader():
-    """Lit les données série de l’Arduino et les publie dans Discord sans spam."""
+    """Lit les données série de l’Arduino et publie dans Discord sans spam."""
     global last_line, last_sent_time
 
     await client.wait_until_ready()
@@ -67,7 +69,7 @@ async def serial_reader():
 
                 print(f"[SERIAL] {line}")  # affichage terminal
 
-                # réponse directe Arduino (cmd: ...)
+                # réponse directe Arduino (CMD: ...)
                 if line.startswith("CMD:") and channel:
                     await channel.send(f"🖥️ **Arduino →** `{line}`")
 
@@ -75,12 +77,27 @@ async def serial_reader():
                 if "BAT:" in line:
                     now = time.time()
 
-                    # --- condition d’envoi ---
-                    # 1️⃣ si changement de trame
-                    # 2️⃣ ou si délai écoulé (1h par défaut)
-                    if (line != last_line and (now - last_sent_time) > READ_INTERVAL) \
-                       or (now - last_sent_time) > SEND_INTERVAL:
+                    # extraire valeurs actuelles
+                    bat_match = re.search(r"BAT[:=]\s*([\d\.]+)", line)
+                    dist_match = re.search(r"DIST[:=]\s*([\d\.]+)", line)
+                    bat_now = float(bat_match.group(1)) if bat_match else None
+                    dist_now = float(dist_match.group(1)) if dist_match else None
 
+                    # extraire valeurs précédentes
+                    bat_prev = None
+                    dist_prev = None
+                    if last_line:
+                        bat_prev_match = re.search(r"BAT[:=]\s*([\d\.]+)", last_line)
+                        dist_prev_match = re.search(r"DIST[:=]\s*([\d\.]+)", last_line)
+                        bat_prev = float(bat_prev_match.group(1)) if bat_prev_match else None
+                        dist_prev = float(dist_prev_match.group(1)) if dist_prev_match else None
+
+                    # tolérance de variation
+                    dist_change = (dist_prev is None or dist_now is None or abs(dist_now - dist_prev) > SEUIL_DIST)
+                    bat_change = (bat_prev is None or bat_now is None or abs(bat_now - bat_prev) > SEUIL_BAT)
+
+                    # condition d’envoi
+                    if (dist_change or bat_change) or (now - last_sent_time) > SEND_INTERVAL:
                         last_line = line
                         last_sent_time = now
 
@@ -90,10 +107,8 @@ async def serial_reader():
                         ir_r = re.search(r"IR_R[:=]\s*(\d)", line)
 
                         msg = "📡 **Télémétrie Arduino**\n"
-                        if bat:
-                            msg += f"🔋 Batterie : `{bat.group(1)}`\n"
-                        if dist:
-                            msg += f"📏 Distance : `{dist.group(1)}`\n"
+                        if bat:  msg += f"🔋 Batterie : `{bat.group(1)}`\n"
+                        if dist: msg += f"📏 Distance : `{dist.group(1)}`\n"
                         if ir_l and ir_r:
                             msg += f"👁️ IR Gauche : `{ir_l.group(1)}` | Droite : `{ir_r.group(1)}`"
 
@@ -123,7 +138,7 @@ async def on_message(message):
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
             "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `GOTO lat lon`\n"
-            "🧭 **Infos :** Télémétrie automatique toutes les 60 min ou si changement\n"
+            f"🧭 **Télémétrie :** toutes les {int(SEND_INTERVAL/60)} min ou si variation > {SEUIL_DIST} cm\n"
             "💬 **Exemple :** `AVANCE` ou `CAM GAUCHE`\n"
         )
         return

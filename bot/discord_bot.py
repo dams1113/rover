@@ -28,7 +28,7 @@ async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
     # --- Canal Discord pour la télémétrie ---
-    target_channel_name = "rover-server"  # ⚠️ nom exact de ton salon Discord
+    target_channel_name = "rover-server"  # ⚠️ Remplace par le nom exact de ton salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
@@ -207,6 +207,10 @@ async def on_message(message):
             await message.channel.send("❌ Utilisation: `GOTO lat lon`")
 
 
-# -------- Run ----------
+# -------- Lancement direct --------
 def run_discord_bot():
     client.run(TOKEN)
+
+
+if __name__ == "__main__":
+    run_discord_bot()

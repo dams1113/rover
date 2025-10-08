@@ -31,8 +31,12 @@ PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
+    # --- Connexion série Arduino ---
+    from modules import arduino_link
+    arduino_link.connect_arduino()
+
     # --- Canal Discord pour la télémétrie ---
-    target_channel_name = "rover-server"  # ⚠️ ton salon Discord exact
+    target_channel_name = "rover-server"  # ⚠️ nom exact de ton salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
@@ -56,7 +60,6 @@ async def telemetry_loop():
 
         line = arduino_link.read_line()
         if line:
-            # Nettoie les caractères parasites et garde la dernière ligne
             clean_line = line.encode('ascii', 'ignore').decode().strip()
             last_telemetry = clean_line
 

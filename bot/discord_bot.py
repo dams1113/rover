@@ -21,7 +21,7 @@ intents.message_content = True
 client = discord.Client(intents=intents)
 
 # --- Variables globales ---
-last_telemetry = None   # Mémorise la dernière ligne série reçue
+last_telemetry = None   # garde la dernière ligne série reçue
 
 # --- Chemin Python (venv) ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
@@ -32,7 +32,7 @@ async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
     # --- Canal Discord pour la télémétrie ---
-    target_channel_name = "rover-server"  # ⚠️ nom exact du salon Discord
+    target_channel_name = "rover-server"  # ⚠️ ton salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
             arduino_link.discord_channel = ch
@@ -56,10 +56,11 @@ async def telemetry_loop():
 
         line = arduino_link.read_line()
         if line:
-            last_telemetry = line  # garde la dernière télémétrie
+            last_telemetry = line
 
         if line and channel:
             try:
+                # Décodage simple de la ligne
                 parts = {p.split(":")[0]: p.split(":")[1] for p in line.split(";") if ":" in p}
                 bat = parts.get("BAT", "?")
                 dist = parts.get("DIST", "?")
@@ -110,17 +111,18 @@ async def on_message(message):
     if cmd == "HELP":
         help_text = (
             "🤖 **Commandes disponibles**\n"
-            "`STATUS` → État du Rover (CPU, GPS, Batterie...)\n"
-            "`MAP` → Génère la carte du jour\n"
+            "`STATUS` → État complet du Rover\n"
+            "`MAP` → Génère la carte GPS du jour\n"
             "`UPDATE` → Met à jour le code\n"
             "`REBOOT` → Redémarre le Raspberry Pi\n"
-            "`FORWARD` / `BACKWARD` / `LEFT` / `RIGHT` / `STOP`\n"
+            "`FORWARD`, `BACKWARD`, `LEFT`, `RIGHT`, `STOP`\n"
             "`GOTO lat lon` → Navigation GPS\n"
         )
         await message.channel.send(help_text)
+        return
 
     # ---- STATUS ----
-    elif cmd == "STATUS":
+    if cmd == "STATUS":
         gps = get_gps_data()
         if gps and gps.get("fix"):
             gps_str = (
@@ -139,7 +141,7 @@ async def on_message(message):
         except Exception:
             pass
 
-        # --- Extraction automatique de la batterie (pourcentage ou tension)
+        # --- Extraction automatique de la batterie (%, ou tension)
         bat_val = "Inconnue"
         if last_telemetry:
             try:
@@ -160,9 +162,10 @@ async def on_message(message):
             f"📍 GPS : {gps_str}\n"
         )
         await message.channel.send(msg)
+        return
 
     # ---- MAP ----
-    elif cmd == "MAP":
+    if cmd == "MAP":
         await message.channel.send("🛰️ Génération de la carte...")
         try:
             subprocess.run([
@@ -175,55 +178,61 @@ async def on_message(message):
             await message.channel.send("✅ Carte générée : `map/multi_map.html`")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur génération carte : {e}")
+        return
 
     # ---- UPDATE ----
-    elif cmd == "UPDATE":
+    if cmd == "UPDATE":
         await message.channel.send("📡 Mise à jour en cours...")
         try:
             subprocess.run(["bash", "git_update.sh"], check=True)
             await message.channel.send("✅ Mise à jour terminée. Utilise `REBOOT` si nécessaire.")
         except subprocess.CalledProcessError as e:
             await message.channel.send(f"⚠️ Erreur update : {e}")
+        return
 
     # ---- REBOOT ----
-    elif cmd == "REBOOT":
+    if cmd == "REBOOT":
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
+        return
 
-    # ---- COMMANDES MOTEURS (Arduino direct) ----
-    elif cmd == "FORWARD":
+    # ---- COMMANDES MOTEURS ----
+    if cmd == "FORWARD":
         arduino_link.send_cmd("F")
         await message.channel.send("🚙 Avance")
+        return
 
-    elif cmd == "BACKWARD":
+    if cmd == "BACKWARD":
         arduino_link.send_cmd("B")
         await message.channel.send("↩️ Recule")
+        return
 
-    elif cmd == "LEFT":
+    if cmd == "LEFT":
         arduino_link.send_cmd("L")
         await message.channel.send("↪️ Gauche")
+        return
 
-    elif cmd == "RIGHT":
+    if cmd == "RIGHT":
         arduino_link.send_cmd("R")
         await message.channel.send("↩️ Droite")
+        return
 
-    elif cmd == "STOP":
+    if cmd == "STOP":
         arduino_link.send_cmd("S")
         await message.channel.send("🛑 Stop")
+        return
 
     # ---- NAVIGATION GPS ----
-    elif cmd == "GOTO":
-        if len(parts) >= 3:
-            try:
-                lat = float(parts[1])
-                lon = float(parts[2])
-                await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
-                success = navigation.goto(lat, lon)
-                await message.channel.send("✅ Objectif atteint !" if success else "⚠️ Navigation interrompue")
-            except ValueError:
-                await message.channel.send("❌ Format invalide. Exemple: `GOTO 42.1234 2.5678`")
-        else:
-            await message.channel.send("❌ Utilisation: `GOTO lat lon`")
+    if cmd == "GOTO" and len(parts) >= 3:
+        try:
+            lat = float(parts[1])
+            lon = float(parts[2])
+            await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
+            success = navigation.goto(lat, lon)
+            await message.channel.send("✅ Objectif atteint !" if success else "⚠️ Navigation interrompue")
+        except ValueError:
+            await message.channel.send("❌ Format invalide. Exemple: `GOTO 42.1234 2.5678`")
+        return
 
 
 # -------- Lancement direct --------

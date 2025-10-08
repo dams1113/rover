@@ -10,7 +10,7 @@ import serial
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
-CHANNEL_NAME = "rover-server"  # salon Discord
+CHANNEL_NAME = "communication-rover"  # salon Discord
 PORT_ARDUINO = "/dev/ttyUSB0"  # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
 READ_INTERVAL = 1.0            # lecture série (secondes)

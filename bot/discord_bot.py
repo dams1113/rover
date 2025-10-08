@@ -8,7 +8,6 @@ import asyncio
 
 # --- Modules internes ---
 from modules.gps_reader import get_gps_data
-from modules import motors
 from modules import navigation
 from modules import arduino_link
 
@@ -23,30 +22,12 @@ client = discord.Client(intents=intents)
 # --- Chemin Python (venv) ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
-# -------- Utils ----------
-def _parse_args(parts, default_sec=2.0, default_speed=50):
-    """Analyse les arguments de commande (durée + vitesse)."""
-    sec = default_sec
-    spd = default_speed
-    if len(parts) >= 2:
-        try:
-            sec = float(parts[1])
-        except ValueError:
-            pass
-    if len(parts) >= 3:
-        try:
-            spd = int(parts[2])
-        except ValueError:
-            pass
-    return sec, spd
-
-
 # -------- EVENTS ----------
 @client.event
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
 
-    # --- Canal Discord pour la télémétrie Arduino ---
+    # --- Canal Discord pour la télémétrie ---
     target_channel_name = "rover-server"  # ⚠️ nom exact de ton salon Discord
     for ch in client.get_all_channels():
         if ch.name == target_channel_name:
@@ -54,13 +35,13 @@ async def on_ready():
             print(f"[Arduino] Télémétrie connectée au canal : {ch.name}")
             break
 
-    # --- Lancer la boucle d'écoute série ---
+    # --- Lancer la boucle de lecture série ---
     asyncio.get_event_loop().create_task(telemetry_loop())
 
 
 # -------- LECTURE ARDUINO / TÉLÉMÉTRIE --------
 async def telemetry_loop():
-    """Lit en continu la télémétrie Arduino et envoie les infos dans Discord."""
+    """Lit en continu la télémétrie Arduino et l’envoie dans Discord."""
     await client.wait_until_ready()
     channel = None
 
@@ -124,10 +105,10 @@ async def on_message(message):
             "`MAP` → Génère la carte du jour\n"
             "`UPDATE` → Met à jour le code\n"
             "`REBOOT` → Redémarre le Raspberry Pi\n"
-            "`FORWARD [sec] [vitesse]` → Avance\n"
-            "`BACKWARD [sec] [vitesse]` → Recule\n"
-            "`LEFT [sec] [vitesse]` → Tourne à gauche\n"
-            "`RIGHT [sec] [vitesse]` → Tourne à droite\n"
+            "`FORWARD` → Avance\n"
+            "`BACKWARD` → Recule\n"
+            "`LEFT` → Tourne à gauche\n"
+            "`RIGHT` → Tourne à droite\n"
             "`STOP` → Arrête le Rover\n"
             "`GOTO lat lon` → Navigation GPS\n"
         )
@@ -190,33 +171,24 @@ async def on_message(message):
         await message.channel.send("🔄 Reboot du Rover...")
         os.system("sudo reboot")
 
-    # ---- COMMANDES MOTEURS ----
+    # ---- COMMANDES MOTEURS (Arduino direct) ----
     elif cmd == "FORWARD":
-        sec, spd = _parse_args(parts, 2.0, 55)
-        motors.forward(speed=spd, duration=sec)
         arduino_link.send_cmd("F")
-        await message.channel.send(f"🚙 Avance {sec}s @ {spd}%")
+        await message.channel.send("🚙 Avance")
 
     elif cmd == "BACKWARD":
-        sec, spd = _parse_args(parts, 2.0, 50)
-        motors.backward(speed=spd, duration=sec)
         arduino_link.send_cmd("B")
-        await message.channel.send(f"↩️ Recule {sec}s @ {spd}%")
+        await message.channel.send("↩️ Recule")
 
     elif cmd == "LEFT":
-        sec, spd = _parse_args(parts, 1.0, 55)
-        motors.turn_left(speed=spd, duration=sec)
         arduino_link.send_cmd("L")
-        await message.channel.send(f"↪️ Gauche {sec}s @ {spd}%")
+        await message.channel.send("↪️ Gauche")
 
     elif cmd == "RIGHT":
-        sec, spd = _parse_args(parts, 1.0, 55)
-        motors.turn_right(speed=spd, duration=sec)
         arduino_link.send_cmd("R")
-        await message.channel.send(f"↩️ Droite {sec}s @ {spd}%")
+        await message.channel.send("↩️ Droite")
 
     elif cmd == "STOP":
-        motors.stop()
         arduino_link.send_cmd("S")
         await message.channel.send("🛑 Stop")
 

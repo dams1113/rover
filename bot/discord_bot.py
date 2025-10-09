@@ -7,63 +7,49 @@ import psutil
 import time
 import asyncio
 import serial
-import serial.tools.list_ports
 import logging
 
-# --- CONFIGURATION ---
+# -------------------------------------------------------------
+# ⚙️ CONFIGURATION GÉNÉRALE
+# -------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
-CHANNEL_NAME = "communication-rover"  # salon Discord
+CHANNEL_NAME = "communication-rover"   # nom du salon Discord
+PORT_ARDUINO = "/dev/arduino"          # port fixe défini par la règle UDEV
 BAUDRATE_ARDUINO = 9600
-READ_INTERVAL = 10.0                  # lecture série (secondes)
-SEND_INTERVAL = 3600                  # délai min entre télémétries (1h)
-SEUIL_DIST = 1.0                      # seuil de tolérance (cm)
-SEUIL_BAT = 1.0                       # seuil de tolérance (%)
-
-# --- LOGGING ---
+READ_INTERVAL = 10.0                   # lecture série (secondes)
+SEND_INTERVAL = 3600                   # intervalle max entre 2 envois (secondes)
+SEUIL_DIST = 1.0                       # tolérance variation distance (cm)
+SEUIL_BAT = 1.0                        # tolérance variation batterie (%)
 LOG_PATH = "/home/rover/rover/rover_serial.log"
+PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
+
+# -------------------------------------------------------------
+# 🧾 LOGGING
+# -------------------------------------------------------------
 logging.basicConfig(
     filename=LOG_PATH,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
-# --- Discord ---
+# -------------------------------------------------------------
+# 🤖 Discord client
+# -------------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# --- VARIABLES GLOBALES ---
+# -------------------------------------------------------------
+# 🔌 Connexion série Arduino
+# -------------------------------------------------------------
 ser = None
-PORT_ARDUINO = None
 last_line = ""
 last_sent_time = 0
 
-PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
-# -------------------------------------------------------------
-# 🔍 Détection automatique du port Arduino
-# -------------------------------------------------------------
-def find_arduino_port():
-    """Détecte automatiquement le port série de l’Arduino."""
-    ports = serial.tools.list_ports.comports()
-    for port in ports:
-        desc = port.description.lower()
-        if "arduino" in desc or "ch340" in desc or "ftdi" in desc:
-            print(f"[SERIAL] 🔍 Arduino détecté sur {port.device} ({desc})")
-            return port.device
-    print("[SERIAL] ⚠️ Aucun périphérique Arduino détecté.")
-    return None
-
-
-# -------------------------------------------------------------
-# 🔌 Connexion série
-# -------------------------------------------------------------
 def connect_arduino():
-    """Initialise la connexion série à l’Arduino."""
-    global ser, PORT_ARDUINO
-    PORT_ARDUINO = find_arduino_port()
-    if not PORT_ARDUINO:
-        return False
+    """Initialise la connexion série à l’Arduino via port fixe /dev/arduino."""
+    global ser
     try:
         ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
         ser.dtr = False
@@ -81,24 +67,25 @@ def connect_arduino():
 
 
 # -------------------------------------------------------------
-# ⚙️ Lecture série (boucle asynchrone)
+# 🔁 Lecture série asynchrone
 # -------------------------------------------------------------
 async def serial_reader():
-    """Lit la série Arduino et gère automatiquement les déconnexions."""
-    global ser, last_line, last_sent_time, PORT_ARDUINO
+    """Lit les données série Arduino et gère les reconnections automatiques."""
+    global ser, last_line, last_sent_time
 
     await client.wait_until_ready()
     channel = discord.utils.get(client.get_all_channels(), name=CHANNEL_NAME)
 
     while not client.is_closed():
         try:
-            # connexion initiale
+            # tentative de reconnexion
             if ser is None or not ser.is_open:
-                if not connect_arduino():
+                if connect_arduino():
+                    if channel:
+                        await channel.send(f"♻️ **Arduino connecté sur {PORT_ARDUINO}** ✅")
+                else:
                     await asyncio.sleep(5)
                     continue
-                if channel:
-                    await channel.send(f"♻️ **Arduino connecté sur {PORT_ARDUINO}** ✅")
 
             # lecture série
             if ser.in_waiting:
@@ -110,19 +97,21 @@ async def serial_reader():
                 print(f"[SERIAL] {line}")
                 logging.info(f"Lecture série : {line}")
 
-                # Commandes directes Arduino
+                # messages de commande
                 if line.startswith("CMD:") and channel:
                     await channel.send(f"🖥️ **Arduino →** `{line}`")
 
-                # ----------- TÉLÉMÉTRIE -----------
+                # --- TÉLÉMÉTRIE ---
                 if "BAT:" in line:
                     now = time.time()
 
+                    # valeurs actuelles
                     bat_match = re.search(r"BAT[:=]\s*([\d\.]+)", line)
                     dist_match = re.search(r"DIST[:=]\s*([\d\.]+)", line)
                     bat_now = float(bat_match.group(1)) if bat_match else None
                     dist_now = float(dist_match.group(1)) if dist_match else None
 
+                    # valeurs précédentes
                     bat_prev = None
                     dist_prev = None
                     if last_line:
@@ -144,8 +133,10 @@ async def serial_reader():
                         ir_r = re.search(r"IR_R[:=]\s*(\d)", line)
 
                         msg = "📡 **Télémétrie Arduino**\n"
-                        if bat:  msg += f"🔋 Batterie : `{bat.group(1)}`\n"
-                        if dist: msg += f"📏 Distance : `{dist.group(1)}`\n"
+                        if bat:
+                            msg += f"🔋 Batterie : `{bat.group(1)}`\n"
+                        if dist:
+                            msg += f"📏 Distance : `{dist.group(1)}`\n"
                         if ir_l and ir_r:
                             msg += f"👁️ IR Gauche : `{ir_l.group(1)}` | Droite : `{ir_r.group(1)}`"
 
@@ -168,7 +159,7 @@ async def serial_reader():
 
 
 # -------------------------------------------------------------
-# 🤖 Commandes Discord
+# 💬 Commandes Discord
 # -------------------------------------------------------------
 @client.event
 async def on_message(message):
@@ -186,20 +177,9 @@ async def on_message(message):
             "🤖 **Commandes disponibles :**\n"
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
-            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`, `PORTS`\n"
+            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`\n"
             f"🧭 **Télémétrie :** toutes les {int(SEND_INTERVAL/60)} min ou si variation > {SEUIL_DIST} cm\n"
-            "💬 **Exemple :** `AVANCE` ou `CAM GAUCHE`\n"
         )
-        return
-
-    # --- PORTS ---
-    if cmd == "PORTS":
-        ports = serial.tools.list_ports.comports()
-        if ports:
-            msg = "**Ports détectés :**\n" + "\n".join([f"🔌 `{p.device}` → {p.description}" for p in ports])
-        else:
-            msg = "⚠️ Aucun port série détecté."
-        await message.channel.send(msg)
         return
 
     # --- Commandes mouvement / caméra ---

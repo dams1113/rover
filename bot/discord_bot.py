@@ -7,17 +7,17 @@ import psutil
 import time
 import asyncio
 import serial
+import serial.tools.list_ports
 import logging
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"  # salon Discord
-PORT_ARDUINO = "/dev/ttyUSB0"         # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
 READ_INTERVAL = 10.0                  # lecture série (secondes)
 SEND_INTERVAL = 3600                  # délai min entre télémétries (1h)
 SEUIL_DIST = 1.0                      # seuil de tolérance (cm)
-SEUIL_BAT = 1.0                       # seuil de tolérance (pourcentage)
+SEUIL_BAT = 1.0                       # seuil de tolérance (%)
 
 # --- LOGGING ---
 LOG_PATH = "/home/rover/rover/rover_serial.log"
@@ -32,61 +32,73 @@ intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
-# --- Connexion série Arduino ---
+# --- VARIABLES GLOBALES ---
 ser = None
-try:
-    ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
-    time.sleep(2)
-    print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
-    logging.info(f"Connexion initiale à {PORT_ARDUINO}")
-except Exception as e:
-    print(f"[SERIAL] ❌ Erreur connexion Arduino : {e}")
-    logging.error(f"Erreur connexion initiale : {e}")
-
+PORT_ARDUINO = None
 last_line = ""
 last_sent_time = 0
 
-# --- PATH PYTHON ---
 PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
 
+# -------------------------------------------------------------
+# 🔍 Détection automatique du port Arduino
+# -------------------------------------------------------------
+def find_arduino_port():
+    """Détecte automatiquement le port série de l’Arduino."""
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        desc = port.description.lower()
+        if "arduino" in desc or "ch340" in desc or "ftdi" in desc:
+            print(f"[SERIAL] 🔍 Arduino détecté sur {port.device} ({desc})")
+            return port.device
+    print("[SERIAL] ⚠️ Aucun périphérique Arduino détecté.")
+    return None
 
-# -------- EVENTS ----------
-@client.event
-async def on_ready():
-    print(f"[ROVER] ✅ Connecté en tant que {client.user}")
-    for guild in client.guilds:
-        for ch in guild.text_channels:
-            if ch.name == CHANNEL_NAME:
-                print(f"[Discord] 🛰️ Connecté au salon : #{ch.name}")
-    await client.change_presence(activity=discord.Game("Rover prêt 🚗"))
-    asyncio.get_event_loop().create_task(serial_reader())
+
+# -------------------------------------------------------------
+# 🔌 Connexion série
+# -------------------------------------------------------------
+def connect_arduino():
+    """Initialise la connexion série à l’Arduino."""
+    global ser, PORT_ARDUINO
+    PORT_ARDUINO = find_arduino_port()
+    if not PORT_ARDUINO:
+        return False
+    try:
+        ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
+        ser.dtr = False
+        ser.rts = False
+        time.sleep(1)
+        ser.reset_input_buffer()
+        print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
+        logging.info(f"Connexion initiale à {PORT_ARDUINO}")
+        return True
+    except Exception as e:
+        print(f"[SERIAL] ❌ Erreur de connexion Arduino : {e}")
+        logging.error(f"Erreur connexion initiale : {e}")
+        ser = None
+        return False
 
 
-# -------- LECTURE SÉRIE --------
+# -------------------------------------------------------------
+# ⚙️ Lecture série (boucle asynchrone)
+# -------------------------------------------------------------
 async def serial_reader():
     """Lit la série Arduino et gère automatiquement les déconnexions."""
-    global ser, last_line, last_sent_time
+    global ser, last_line, last_sent_time, PORT_ARDUINO
 
     await client.wait_until_ready()
     channel = discord.utils.get(client.get_all_channels(), name=CHANNEL_NAME)
 
     while not client.is_closed():
         try:
+            # connexion initiale
             if ser is None or not ser.is_open:
-                # tentative de reconnexion
-                await asyncio.sleep(2)
-                try:
-                    ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
-                    time.sleep(2)
-                    print(f"[SERIAL] ♻️ Reconnexion à {PORT_ARDUINO}")
-                    logging.info(f"Reconnexion à {PORT_ARDUINO}")
-                    if channel:
-                        await channel.send(f"♻️ **Arduino reconnecté sur {PORT_ARDUINO}** ✅")
-                except Exception as e:
-                    print(f"[SERIAL] 🔌 En attente d'Arduino... ({e})")
-                    logging.warning(f"Attente d'Arduino : {e}")
+                if not connect_arduino():
                     await asyncio.sleep(5)
                     continue
+                if channel:
+                    await channel.send(f"♻️ **Arduino connecté sur {PORT_ARDUINO}** ✅")
 
             # lecture série
             if ser.in_waiting:
@@ -98,7 +110,7 @@ async def serial_reader():
                 print(f"[SERIAL] {line}")
                 logging.info(f"Lecture série : {line}")
 
-                # Commande directe Arduino
+                # Commandes directes Arduino
                 if line.startswith("CMD:") and channel:
                     await channel.send(f"🖥️ **Arduino →** `{line}`")
 
@@ -155,7 +167,9 @@ async def serial_reader():
         await asyncio.sleep(READ_INTERVAL)
 
 
-# -------- COMMANDES DISCORD --------
+# -------------------------------------------------------------
+# 🤖 Commandes Discord
+# -------------------------------------------------------------
 @client.event
 async def on_message(message):
     global ser
@@ -172,31 +186,26 @@ async def on_message(message):
             "🤖 **Commandes disponibles :**\n"
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
-            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`\n"
+            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`, `PORTS`\n"
             f"🧭 **Télémétrie :** toutes les {int(SEND_INTERVAL/60)} min ou si variation > {SEUIL_DIST} cm\n"
             "💬 **Exemple :** `AVANCE` ou `CAM GAUCHE`\n"
         )
         return
 
-    # --- Commandes rover ---
-    mouvement = {
-        "AVANCE": "F",
-        "RECULE": "B",
-        "GAUCHE": "L",
-        "DROITE": "R",
-        "STOP": "S",
-    }
+    # --- PORTS ---
+    if cmd == "PORTS":
+        ports = serial.tools.list_ports.comports()
+        if ports:
+            msg = "**Ports détectés :**\n" + "\n".join([f"🔌 `{p.device}` → {p.description}" for p in ports])
+        else:
+            msg = "⚠️ Aucun port série détecté."
+        await message.channel.send(msg)
+        return
 
-    # --- Commandes caméra ---
-    servo = {
-        "CAM GAUCHE": "1",
-        "CAM CENTRE": "2",
-        "CAM DROITE": "3",
-        "CAM HAUT": "U",
-        "CAM BAS": "D",
-    }
+    # --- Commandes mouvement / caméra ---
+    mouvement = {"AVANCE": "F", "RECULE": "B", "GAUCHE": "L", "DROITE": "R", "STOP": "S"}
+    servo = {"CAM GAUCHE": "1", "CAM CENTRE": "2", "CAM DROITE": "3", "CAM HAUT": "U", "CAM BAS": "D"}
 
-    # --- Envoi de commande à l’Arduino ---
     if cmd in mouvement or cmd in servo:
         code = mouvement.get(cmd) or servo.get(cmd)
         if ser and ser.is_open:
@@ -204,8 +213,7 @@ async def on_message(message):
                 ser.write((code + "\n").encode())
                 await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
             except (serial.SerialException, OSError) as e:
-                await message.channel.send(f"⚠️ Erreur d'envoi : {e}. Tentative de reconnexion...")
-                logging.error(f"Erreur écriture série : {e}")
+                await message.channel.send(f"⚠️ Erreur d'envoi : {e}")
                 try:
                     ser.close()
                 except Exception:
@@ -215,7 +223,7 @@ async def on_message(message):
             await message.channel.send("⚠️ Arduino non connecté.")
         return
 
-    # --- STATUS Pi ---
+    # --- STATUS Raspberry Pi ---
     if cmd == "STATUS":
         uptime = datetime.timedelta(seconds=int(time.time() - psutil.boot_time()))
         cpu_temp = 0.0
@@ -237,7 +245,7 @@ async def on_message(message):
     # --- DEBUG USB ---
     if cmd == "DEBUG USB":
         try:
-            output = subprocess.check_output(["dmesg", "|", "tail", "-10"], text=True, shell=True)
+            output = subprocess.check_output("dmesg | tail -10", shell=True, text=True)
             await message.channel.send(f"🧩 **Derniers logs USB :**\n```{output}```")
         except Exception as e:
             await message.channel.send(f"⚠️ Erreur lecture logs : {e}")
@@ -250,9 +258,19 @@ async def on_message(message):
         return
 
 
-# -------- Lancement --------
+# -------------------------------------------------------------
+# 🚀 Lancement du bot
+# -------------------------------------------------------------
+@client.event
+async def on_ready():
+    print(f"[ROVER] ✅ Connecté en tant que {client.user}")
+    await client.change_presence(activity=discord.Game("Rover prêt 🚗"))
+    asyncio.get_event_loop().create_task(serial_reader())
+
+
 def run_discord_bot():
     client.run(TOKEN)
+
 
 if __name__ == "__main__":
     run_discord_bot()

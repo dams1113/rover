@@ -7,16 +7,25 @@ import psutil
 import time
 import asyncio
 import serial
+import logging
 
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"  # salon Discord
 PORT_ARDUINO = "/dev/ttyUSB0"         # Arduino (moteurs + caméra)
 BAUDRATE_ARDUINO = 9600
-READ_INTERVAL = 10.0                   # lecture série (secondes)
-SEND_INTERVAL = 3600                   # délai min entre télémétries (1h)
-SEUIL_DIST = 3.0                       # seuil de tolérance en cm
-SEUIL_BAT = 3.0                        # seuil de tolérance en %
+READ_INTERVAL = 10.0                  # lecture série (secondes)
+SEND_INTERVAL = 3600                  # délai min entre télémétries (1h)
+SEUIL_DIST = 1.0                      # seuil de tolérance (cm)
+SEUIL_BAT = 1.0                       # seuil de tolérance (pourcentage)
+
+# --- LOGGING ---
+LOG_PATH = "/home/rover/rover/rover_serial.log"
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 # --- Discord ---
 intents = discord.Intents.default()
@@ -29,8 +38,10 @@ try:
     ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
     time.sleep(2)
     print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
+    logging.info(f"Connexion initiale à {PORT_ARDUINO}")
 except Exception as e:
     print(f"[SERIAL] ❌ Erreur connexion Arduino : {e}")
+    logging.error(f"Erreur connexion initiale : {e}")
 
 last_line = ""
 last_sent_time = 0
@@ -53,37 +64,53 @@ async def on_ready():
 
 # -------- LECTURE SÉRIE --------
 async def serial_reader():
-    """Lit les données série de l’Arduino et publie dans Discord sans spam."""
-    global last_line, last_sent_time
+    """Lit la série Arduino et gère automatiquement les déconnexions."""
+    global ser, last_line, last_sent_time
 
     await client.wait_until_ready()
     channel = discord.utils.get(client.get_all_channels(), name=CHANNEL_NAME)
 
     while not client.is_closed():
-        if ser and ser.in_waiting:
-            try:
+        try:
+            if ser is None or not ser.is_open:
+                # tentative de reconnexion
+                await asyncio.sleep(2)
+                try:
+                    ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
+                    time.sleep(2)
+                    print(f"[SERIAL] ♻️ Reconnexion à {PORT_ARDUINO}")
+                    logging.info(f"Reconnexion à {PORT_ARDUINO}")
+                    if channel:
+                        await channel.send(f"♻️ **Arduino reconnecté sur {PORT_ARDUINO}** ✅")
+                except Exception as e:
+                    print(f"[SERIAL] 🔌 En attente d'Arduino... ({e})")
+                    logging.warning(f"Attente d'Arduino : {e}")
+                    await asyncio.sleep(5)
+                    continue
+
+            # lecture série
+            if ser.in_waiting:
                 line = ser.readline().decode(errors="ignore").strip()
                 if not line:
                     await asyncio.sleep(READ_INTERVAL)
                     continue
 
-                print(f"[SERIAL] {line}")  # affichage terminal
+                print(f"[SERIAL] {line}")
+                logging.info(f"Lecture série : {line}")
 
-                # réponse directe Arduino (CMD: ...)
+                # Commande directe Arduino
                 if line.startswith("CMD:") and channel:
                     await channel.send(f"🖥️ **Arduino →** `{line}`")
 
-                # Télémétrie (BAT / DIST / IR)
+                # ----------- TÉLÉMÉTRIE -----------
                 if "BAT:" in line:
                     now = time.time()
 
-                    # extraire valeurs actuelles
                     bat_match = re.search(r"BAT[:=]\s*([\d\.]+)", line)
                     dist_match = re.search(r"DIST[:=]\s*([\d\.]+)", line)
                     bat_now = float(bat_match.group(1)) if bat_match else None
                     dist_now = float(dist_match.group(1)) if dist_match else None
 
-                    # extraire valeurs précédentes
                     bat_prev = None
                     dist_prev = None
                     if last_line:
@@ -92,11 +119,9 @@ async def serial_reader():
                         bat_prev = float(bat_prev_match.group(1)) if bat_prev_match else None
                         dist_prev = float(dist_prev_match.group(1)) if dist_prev_match else None
 
-                    # tolérance de variation
                     dist_change = (dist_prev is None or dist_now is None or abs(dist_now - dist_prev) > SEUIL_DIST)
                     bat_change = (bat_prev is None or bat_now is None or abs(bat_now - bat_prev) > SEUIL_BAT)
 
-                    # condition d’envoi
                     if (dist_change or bat_change) or (now - last_sent_time) > SEND_INTERVAL:
                         last_line = line
                         last_sent_time = now
@@ -115,8 +140,17 @@ async def serial_reader():
                         if channel:
                             await channel.send(msg)
 
-            except Exception as e:
-                print(f"[SERIAL] ⚠️ Erreur lecture : {e}")
+        except (serial.SerialException, OSError) as e:
+            print(f"[SERIAL] ⚠️ Déconnexion détectée : {e}")
+            logging.error(f"Déconnexion détectée : {e}")
+            if channel:
+                await channel.send(f"⚠️ **Perte de communication avec Arduino ({PORT_ARDUINO})**")
+            try:
+                ser.close()
+            except Exception:
+                pass
+            ser = None
+            await asyncio.sleep(5)
 
         await asyncio.sleep(READ_INTERVAL)
 
@@ -124,6 +158,7 @@ async def serial_reader():
 # -------- COMMANDES DISCORD --------
 @client.event
 async def on_message(message):
+    global ser
     if message.author == client.user:
         return
     if message.channel.name != CHANNEL_NAME:
@@ -137,7 +172,7 @@ async def on_message(message):
             "🤖 **Commandes disponibles :**\n"
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
-            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `GOTO lat lon`\n"
+            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`\n"
             f"🧭 **Télémétrie :** toutes les {int(SEND_INTERVAL/60)} min ou si variation > {SEUIL_DIST} cm\n"
             "💬 **Exemple :** `AVANCE` ou `CAM GAUCHE`\n"
         )
@@ -161,12 +196,21 @@ async def on_message(message):
         "CAM BAS": "D",
     }
 
-    # --- Exécution des commandes Arduino ---
+    # --- Envoi de commande à l’Arduino ---
     if cmd in mouvement or cmd in servo:
         code = mouvement.get(cmd) or servo.get(cmd)
-        if ser:
-            ser.write((code + "\n").encode())
-            await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
+        if ser and ser.is_open:
+            try:
+                ser.write((code + "\n").encode())
+                await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
+            except (serial.SerialException, OSError) as e:
+                await message.channel.send(f"⚠️ Erreur d'envoi : {e}. Tentative de reconnexion...")
+                logging.error(f"Erreur écriture série : {e}")
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+                ser = None
         else:
             await message.channel.send("⚠️ Arduino non connecté.")
         return
@@ -190,53 +234,19 @@ async def on_message(message):
         await message.channel.send(msg)
         return
 
-    # --- MAP ---
-    if cmd == "MAP":
-        await message.channel.send("🛰️ Génération de la carte...")
+    # --- DEBUG USB ---
+    if cmd == "DEBUG USB":
         try:
-            subprocess.run([
-                PYTHON_BIN, "tools/multi_map.py",
-                "--out", "map/multi_map.html",
-                "--basemap", "positron",
-                "--heatmap", "--points",
-                "--in", f"logs/gps_{datetime.date.today()}.csv"
-            ], check=True)
-            await message.channel.send("✅ Carte générée : `map/multi_map.html`")
-        except subprocess.CalledProcessError as e:
-            await message.channel.send(f"⚠️ Erreur génération carte : {e}")
-        return
-
-    # --- UPDATE ---
-    if cmd == "UPDATE":
-        await message.channel.send("📡 Mise à jour en cours...")
-        try:
-            subprocess.run(["bash", "git_update.sh"], check=True)
-            await message.channel.send("✅ Mise à jour terminée.")
-        except subprocess.CalledProcessError as e:
-            await message.channel.send(f"⚠️ Erreur update : {e}")
+            output = subprocess.check_output(["dmesg", "|", "tail", "-10"], text=True, shell=True)
+            await message.channel.send(f"🧩 **Derniers logs USB :**\n```{output}```")
+        except Exception as e:
+            await message.channel.send(f"⚠️ Erreur lecture logs : {e}")
         return
 
     # --- REBOOT ---
     if cmd == "REBOOT":
         await message.channel.send("🔄 Redémarrage du Pi...")
         os.system("sudo reboot")
-        return
-
-    # --- GOTO GPS ---
-    if cmd.startswith("GOTO"):
-        try:
-            parts = cmd.split()
-            if len(parts) >= 3:
-                lat = float(parts[1])
-                lon = float(parts[2])
-                await message.channel.send(f"🧭 Navigation vers {lat}, {lon}")
-                from modules import navigation
-                success = navigation.goto(lat, lon)
-                await message.channel.send("✅ Objectif atteint !" if success else "⚠️ Navigation interrompue")
-            else:
-                await message.channel.send("❌ Utilisation : `GOTO lat lon`")
-        except ValueError:
-            await message.channel.send("❌ Format invalide pour `GOTO`.")
         return
 
 

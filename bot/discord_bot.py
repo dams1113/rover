@@ -14,7 +14,7 @@ import logging
 # -------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"   # nom du salon Discord
-PORT_ARDUINO = "/dev/arduino"          # port fixe défini par la règle UDEV
+PORT_ARDUINO = "/dev/arduino"          # port fixe (défini via règle UDEV)
 BAUDRATE_ARDUINO = 9600
 READ_INTERVAL = 10.0                   # lecture série (secondes)
 SEND_INTERVAL = 3600                   # intervalle max entre 2 envois (secondes)
@@ -52,9 +52,10 @@ def connect_arduino():
     global ser
     try:
         ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
+        # Empêche le reset automatique du CH340
         ser.dtr = False
         ser.rts = False
-        time.sleep(1)
+        time.sleep(0.5)
         ser.reset_input_buffer()
         print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
         logging.info(f"Connexion initiale à {PORT_ARDUINO}")
@@ -153,7 +154,9 @@ async def serial_reader():
             except Exception:
                 pass
             ser = None
-            await asyncio.sleep(5)
+            # Tentative de reconnexion rapide
+            await asyncio.sleep(1)
+            connect_arduino()
 
         await asyncio.sleep(READ_INTERVAL)
 
@@ -190,15 +193,22 @@ async def on_message(message):
         code = mouvement.get(cmd) or servo.get(cmd)
         if ser and ser.is_open:
             try:
+                # vérifie l'état du port avant envoi
+                ser.write_timeout = 2
+                ser.flushInput()
+                ser.flushOutput()
                 ser.write((code + "\n").encode())
                 await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
             except (serial.SerialException, OSError) as e:
                 await message.channel.send(f"⚠️ Erreur d'envoi : {e}")
+                logging.error(f"Erreur écriture série : {e}")
                 try:
                     ser.close()
                 except Exception:
                     pass
                 ser = None
+                # Reconnexion immédiate
+                connect_arduino()
         else:
             await message.channel.send("⚠️ Arduino non connecté.")
         return

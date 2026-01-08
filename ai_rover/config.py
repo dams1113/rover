@@ -1,0 +1,10 @@
+# ai_rover/config.py
+
+# ⚠️ CHANGE CE TOKEN
+ROVER_TOKEN = "change-moi-12345"
+
+SERVER_HOST = "0.0.0.0"
+SERVER_PORT = 5000
+
+SPEED_FORWARD = 0.4
+SPEED_TURN = 0.35

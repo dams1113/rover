@@ -8,20 +8,28 @@ import time
 import asyncio
 import serial
 import logging
+from aiohttp import web
 
 # -------------------------------------------------------------
 # ⚙️ CONFIGURATION GÉNÉRALE
 # -------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
 CHANNEL_NAME = "communication-rover"   # nom du salon Discord
+
 PORT_ARDUINO = "/dev/arduino"          # port fixe (défini via règle UDEV)
 BAUDRATE_ARDUINO = 9600
+
 READ_INTERVAL = 10.0                   # lecture série (secondes)
 SEND_INTERVAL = 3600                   # intervalle max entre 2 envois (secondes)
 SEUIL_DIST = 1.0                       # tolérance variation distance (cm)
 SEUIL_BAT = 1.0                        # tolérance variation batterie (%)
+
 LOG_PATH = "/home/rover/rover/rover_serial.log"
-PYTHON_BIN = "/home/rover/rover/.venv/bin/python"
+
+# API locale (ai_rover -> bot)
+LOCAL_API_HOST = "127.0.0.1"
+LOCAL_API_PORT = 5055
+LOCAL_API_TOKEN = os.getenv("ROVER_LOCAL_TOKEN") or "local-change-moi-12345"
 
 # -------------------------------------------------------------
 # 🧾 LOGGING
@@ -46,6 +54,9 @@ ser = None
 last_line = ""
 last_sent_time = 0
 
+# lock async pour éviter 2 writes en même temps (Discord + API locale)
+serial_lock = asyncio.Lock()
+
 
 def connect_arduino():
     """Initialise la connexion série à l’Arduino via port fixe /dev/arduino."""
@@ -53,16 +64,47 @@ def connect_arduino():
     try:
         ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
         # Empêche le reset automatique du CH340
-        ser.dtr = False
-        ser.rts = False
+        try:
+            ser.dtr = False
+            ser.rts = False
+        except Exception:
+            pass
+
         time.sleep(0.5)
-        ser.reset_input_buffer()
+        try:
+            ser.reset_input_buffer()
+        except Exception:
+            pass
+
         print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
         logging.info(f"Connexion initiale à {PORT_ARDUINO}")
         return True
+
     except Exception as e:
         print(f"[SERIAL] ❌ Erreur de connexion Arduino : {e}")
         logging.error(f"Erreur connexion initiale : {e}")
+        ser = None
+        return False
+
+
+async def serial_write(code: str) -> bool:
+    """Ecrit une commande (1 lettre / code) sur le port série de façon safe."""
+    global ser
+    if ser is None or not ser.is_open:
+        return False
+
+    try:
+        async with serial_lock:
+            ser.write_timeout = 2
+            # flushInput/flushOutput peuvent être lourds ; on évite si possible
+            ser.write((code + "\n").encode())
+        return True
+    except Exception as e:
+        logging.error(f"Erreur écriture série : {e}")
+        try:
+            ser.close()
+        except Exception:
+            pass
         ser = None
         return False
 
@@ -106,13 +148,11 @@ async def serial_reader():
                 if "BAT:" in line:
                     now = time.time()
 
-                    # valeurs actuelles
                     bat_match = re.search(r"BAT[:=]\s*([\d\.]+)", line)
                     dist_match = re.search(r"DIST[:=]\s*([\d\.]+)", line)
                     bat_now = float(bat_match.group(1)) if bat_match else None
                     dist_now = float(dist_match.group(1)) if dist_match else None
 
-                    # valeurs précédentes
                     bat_prev = None
                     dist_prev = None
                     if last_line:
@@ -150,15 +190,65 @@ async def serial_reader():
             if channel:
                 await channel.send(f"⚠️ **Perte de communication avec Arduino ({PORT_ARDUINO})**")
             try:
-                ser.close()
+                if ser:
+                    ser.close()
             except Exception:
                 pass
             ser = None
-            # Tentative de reconnexion rapide
             await asyncio.sleep(1)
-            connect_arduino()
 
         await asyncio.sleep(READ_INTERVAL)
+
+
+# -------------------------------------------------------------
+# 🌐 API locale pour le pilotage moteur (ai_rover -> bot)
+# -------------------------------------------------------------
+async def motor_handler(request: web.Request):
+    token = request.headers.get("X-ROVER-LOCAL-TOKEN", "")
+    if token != LOCAL_API_TOKEN:
+        return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "bad_json"}, status=400)
+
+    cmd = (data.get("cmd") or "").upper().strip()
+
+    mapping = {
+        "FORWARD": "F",
+        "BACK": "B",
+        "LEFT": "L",
+        "RIGHT": "R",
+        "STOP": "S",
+        "F": "F", "B": "B", "L": "L", "R": "R", "S": "S"
+    }
+
+    if cmd not in mapping:
+        return web.json_response({"ok": False, "error": "bad_cmd"}, status=400)
+
+    if ser is None or not ser.is_open:
+        return web.json_response({"ok": False, "error": "arduino_not_connected"}, status=503)
+
+    code = mapping[cmd]
+    sent = await serial_write(code)
+    if not sent:
+        return web.json_response({"ok": False, "error": "serial_write_failed"}, status=500)
+
+    return web.json_response({"ok": True, "sent": True, "code": code})
+
+
+async def start_local_api():
+    app = web.Application()
+    app.router.add_post("/motor", motor_handler)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, LOCAL_API_HOST, LOCAL_API_PORT)
+    await site.start()
+
+    print(f"[LOCAL_API] ✅ http://{LOCAL_API_HOST}:{LOCAL_API_PORT}/motor")
+    logging.info(f"Local API started on {LOCAL_API_HOST}:{LOCAL_API_PORT}")
 
 
 # -------------------------------------------------------------
@@ -185,29 +275,17 @@ async def on_message(message):
         )
         return
 
-    # --- Commandes mouvement / caméra ---
     mouvement = {"AVANCE": "F", "RECULE": "B", "GAUCHE": "L", "DROITE": "R", "STOP": "S"}
     servo = {"CAM GAUCHE": "1", "CAM CENTRE": "2", "CAM DROITE": "3", "CAM HAUT": "U", "CAM BAS": "D"}
 
     if cmd in mouvement or cmd in servo:
         code = mouvement.get(cmd) or servo.get(cmd)
         if ser and ser.is_open:
-            try:
-                # vérifie l'état du port avant envoi
-                ser.write_timeout = 2
-                ser.flushInput()
-                ser.flushOutput()
-                ser.write((code + "\n").encode())
+            sent = await serial_write(code)
+            if sent:
                 await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
-            except (serial.SerialException, OSError) as e:
-                await message.channel.send(f"⚠️ Erreur d'envoi : {e}")
-                logging.error(f"Erreur écriture série : {e}")
-                try:
-                    ser.close()
-                except Exception:
-                    pass
-                ser = None
-                # Reconnexion immédiate
+            else:
+                await message.channel.send("⚠️ Erreur d'envoi (série). Tentative de reconnexion…")
                 connect_arduino()
         else:
             await message.channel.send("⚠️ Arduino non connecté.")
@@ -255,7 +333,10 @@ async def on_message(message):
 async def on_ready():
     print(f"[ROVER] ✅ Connecté en tant que {client.user}")
     await client.change_presence(activity=discord.Game("Rover prêt 🚗"))
-    asyncio.get_event_loop().create_task(serial_reader())
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(serial_reader())
+    loop.create_task(start_local_api())
 
 
 def run_discord_bot():

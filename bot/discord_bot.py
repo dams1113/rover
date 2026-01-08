@@ -1,28 +1,30 @@
 import os
 import re
-import discord
-import subprocess
-import datetime
-import psutil
 import time
 import asyncio
-import serial
 import logging
+import datetime
+import subprocess
+
+import discord
+import psutil
+import serial
+
 from aiohttp import web
 
 # -------------------------------------------------------------
-# ⚙️ CONFIGURATION GÉNÉRALE
+# ⚙️ CONFIGURATION
 # -------------------------------------------------------------
 TOKEN = os.getenv("DISCORD_TOKEN") or open("bot/token.txt").read().strip()
-CHANNEL_NAME = "communication-rover"   # nom du salon Discord
+CHANNEL_NAME = "communication-rover"
 
-PORT_ARDUINO = "/dev/arduino"          # port fixe (défini via règle UDEV)
+PORT_ARDUINO = "/dev/arduino"
 BAUDRATE_ARDUINO = 9600
 
-READ_INTERVAL = 10.0                   # lecture série (secondes)
-SEND_INTERVAL = 3600                   # intervalle max entre 2 envois (secondes)
-SEUIL_DIST = 1.0                       # tolérance variation distance (cm)
-SEUIL_BAT = 1.0                        # tolérance variation batterie (%)
+READ_INTERVAL = 10.0        # lecture série (s)
+SEND_INTERVAL = 3600        # envoi max (s)
+SEUIL_DIST = 1.0            # cm
+SEUIL_BAT = 1.0             # %
 
 LOG_PATH = "/home/rover/rover/rover_serial.log"
 
@@ -40,67 +42,75 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s"
 )
 
+def log(msg: str):
+    print(msg, flush=True)
+    logging.info(msg)
+
 # -------------------------------------------------------------
-# 🤖 Discord client
+# 🤖 DISCORD
 # -------------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 client = discord.Client(intents=intents)
 
 # -------------------------------------------------------------
-# 🔌 Connexion série Arduino
+# 🔌 SERIAL
 # -------------------------------------------------------------
 ser = None
+serial_lock = asyncio.Lock()
+
 last_line = ""
 last_sent_time = 0
 
-# lock async pour éviter 2 writes en même temps (Discord + API locale)
-serial_lock = asyncio.Lock()
 
-
-def connect_arduino():
-    """Initialise la connexion série à l’Arduino via port fixe /dev/arduino."""
+def connect_arduino() -> bool:
+    """(Re)connecte l'Arduino."""
     global ser
     try:
+        # ferme proprement si déjà ouvert
+        try:
+            if ser and ser.is_open:
+                ser.close()
+        except Exception:
+            pass
+
         ser = serial.Serial(PORT_ARDUINO, BAUDRATE_ARDUINO, timeout=1)
-        # Empêche le reset automatique du CH340
+
+        # Evite reset auto (CH340)
         try:
             ser.dtr = False
             ser.rts = False
         except Exception:
             pass
 
-        time.sleep(0.5)
+        time.sleep(0.3)
         try:
             ser.reset_input_buffer()
         except Exception:
             pass
 
-        print(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
-        logging.info(f"Connexion initiale à {PORT_ARDUINO}")
+        log(f"[SERIAL] ✅ Connecté à {PORT_ARDUINO}")
         return True
 
     except Exception as e:
-        print(f"[SERIAL] ❌ Erreur de connexion Arduino : {e}")
-        logging.error(f"Erreur connexion initiale : {e}")
         ser = None
+        log(f"[SERIAL] ❌ Erreur connexion : {e}")
         return False
 
 
 async def serial_write(code: str) -> bool:
-    """Ecrit une commande (1 lettre / code) sur le port série de façon safe."""
+    """Ecrit sur le port série de façon thread-safe (async lock)."""
     global ser
     if ser is None or not ser.is_open:
         return False
 
     try:
         async with serial_lock:
-            ser.write_timeout = 2
-            # flushInput/flushOutput peuvent être lourds ; on évite si possible
+            ser.write_timeout = 1
             ser.write((code + "\n").encode())
         return True
     except Exception as e:
-        logging.error(f"Erreur écriture série : {e}")
+        log(f"[SERIAL] ⚠️ write failed ({code}) : {e}")
         try:
             ser.close()
         except Exception:
@@ -109,11 +119,38 @@ async def serial_write(code: str) -> bool:
         return False
 
 
+async def serial_write_robust(code: str, retry: int = 2) -> tuple[bool, str]:
+    """
+    Ecriture robuste :
+    - si port fermé -> reconnect
+    - si write échoue -> reconnect et retry
+    """
+    global ser
+
+    # 1) assure une connexion
+    if ser is None or not ser.is_open:
+        if not connect_arduino():
+            return False, "not_connected"
+
+    # 2) essais
+    for i in range(retry + 1):
+        ok = await serial_write(code)
+        if ok:
+            if i == 0:
+                return True, "ok"
+            return True, f"ok_retry_{i}"
+
+        # si write échoue, on tente une reconnexion puis on retente
+        connect_arduino()
+        await asyncio.sleep(0.05)
+
+    return False, "serial_write_failed"
+
+
 # -------------------------------------------------------------
-# 🔁 Lecture série asynchrone
+# 🔁 SERIAL READER (telemetry)
 # -------------------------------------------------------------
 async def serial_reader():
-    """Lit les données série Arduino et gère les reconnections automatiques."""
     global ser, last_line, last_sent_time
 
     await client.wait_until_ready()
@@ -121,30 +158,24 @@ async def serial_reader():
 
     while not client.is_closed():
         try:
-            # tentative de reconnexion
             if ser is None or not ser.is_open:
-                if connect_arduino():
-                    if channel:
-                        await channel.send(f"♻️ **Arduino connecté sur {PORT_ARDUINO}** ✅")
-                else:
-                    await asyncio.sleep(5)
-                    continue
+                connect_arduino()
+                await asyncio.sleep(2)
+                continue
 
-            # lecture série
             if ser.in_waiting:
                 line = ser.readline().decode(errors="ignore").strip()
                 if not line:
                     await asyncio.sleep(READ_INTERVAL)
                     continue
 
-                print(f"[SERIAL] {line}")
-                logging.info(f"Lecture série : {line}")
+                log(f"[SERIAL] {line}")
 
-                # messages de commande
+                # messages "CMD:" envoyés par Arduino
                 if line.startswith("CMD:") and channel:
                     await channel.send(f"🖥️ **Arduino →** `{line}`")
 
-                # --- TÉLÉMÉTRIE ---
+                # télémétrie filtrée
                 if "BAT:" in line:
                     now = time.time()
 
@@ -185,10 +216,7 @@ async def serial_reader():
                             await channel.send(msg)
 
         except (serial.SerialException, OSError) as e:
-            print(f"[SERIAL] ⚠️ Déconnexion détectée : {e}")
-            logging.error(f"Déconnexion détectée : {e}")
-            if channel:
-                await channel.send(f"⚠️ **Perte de communication avec Arduino ({PORT_ARDUINO})**")
+            log(f"[SERIAL] ⚠️ Déconnexion détectée : {e}")
             try:
                 if ser:
                     ser.close()
@@ -201,7 +229,7 @@ async def serial_reader():
 
 
 # -------------------------------------------------------------
-# 🌐 API locale pour le pilotage moteur (ai_rover -> bot)
+# 🌐 LOCAL API (ai_rover -> bot)
 # -------------------------------------------------------------
 async def motor_handler(request: web.Request):
     token = request.headers.get("X-ROVER-LOCAL-TOKEN", "")
@@ -221,21 +249,25 @@ async def motor_handler(request: web.Request):
         "LEFT": "L",
         "RIGHT": "R",
         "STOP": "S",
-        "F": "F", "B": "B", "L": "L", "R": "R", "S": "S"
+        "F": "F", "B": "B", "L": "L", "R": "R", "S": "S",
     }
 
     if cmd not in mapping:
         return web.json_response({"ok": False, "error": "bad_cmd"}, status=400)
 
-    if ser is None or not ser.is_open:
-        return web.json_response({"ok": False, "error": "arduino_not_connected"}, status=503)
-
     code = mapping[cmd]
-    sent = await serial_write(code)
-    if not sent:
-        return web.json_response({"ok": False, "error": "serial_write_failed"}, status=500)
 
-    return web.json_response({"ok": True, "sent": True, "code": code})
+    ok, note = await serial_write_robust(code, retry=2)
+    if ok:
+        return web.json_response({"ok": True, "sent": True, "code": code, "note": note})
+
+    # fail-safe : si STOP échoue, on retente plus agressif
+    if code == "S":
+        ok2, note2 = await serial_write_robust("S", retry=5)
+        if ok2:
+            return web.json_response({"ok": True, "sent": True, "code": "S", "note": f"failsafe_{note2}"})
+
+    return web.json_response({"ok": False, "error": note}, status=500)
 
 
 async def start_local_api():
@@ -247,16 +279,14 @@ async def start_local_api():
     site = web.TCPSite(runner, LOCAL_API_HOST, LOCAL_API_PORT)
     await site.start()
 
-    print(f"[LOCAL_API] ✅ http://{LOCAL_API_HOST}:{LOCAL_API_PORT}/motor")
-    logging.info(f"Local API started on {LOCAL_API_HOST}:{LOCAL_API_PORT}")
+    log(f"[LOCAL_API] ✅ http://{LOCAL_API_HOST}:{LOCAL_API_PORT}/motor")
 
 
 # -------------------------------------------------------------
-# 💬 Commandes Discord
+# 💬 DISCORD COMMANDES
 # -------------------------------------------------------------
 @client.event
 async def on_message(message):
-    global ser
     if message.author == client.user:
         return
     if message.channel.name != CHANNEL_NAME:
@@ -264,14 +294,12 @@ async def on_message(message):
 
     cmd = message.content.strip().upper()
 
-    # --- HELP ---
     if cmd == "HELP":
         await message.channel.send(
             "🤖 **Commandes disponibles :**\n"
             "🕹️ **Rover :** `AVANCE`, `RECULE`, `GAUCHE`, `DROITE`, `STOP`\n"
             "🎥 **Caméra :** `CAM GAUCHE`, `CAM CENTRE`, `CAM DROITE`, `CAM HAUT`, `CAM BAS`\n"
-            "📡 **Système :** `STATUS`, `MAP`, `UPDATE`, `REBOOT`, `DEBUG USB`\n"
-            f"🧭 **Télémétrie :** toutes les {int(SEND_INTERVAL/60)} min ou si variation > {SEUIL_DIST} cm\n"
+            "📡 **Système :** `STATUS`, `DEBUG USB`, `REBOOT`\n"
         )
         return
 
@@ -280,18 +308,13 @@ async def on_message(message):
 
     if cmd in mouvement or cmd in servo:
         code = mouvement.get(cmd) or servo.get(cmd)
-        if ser and ser.is_open:
-            sent = await serial_write(code)
-            if sent:
-                await message.channel.send(f"✅ Commande envoyée à l’Arduino : `{cmd}` → `{code}`")
-            else:
-                await message.channel.send("⚠️ Erreur d'envoi (série). Tentative de reconnexion…")
-                connect_arduino()
+        ok, note = await serial_write_robust(code, retry=2)
+        if ok:
+            await message.channel.send(f"✅ `{cmd}` → `{code}` ({note})")
         else:
-            await message.channel.send("⚠️ Arduino non connecté.")
+            await message.channel.send(f"⚠️ Échec `{cmd}` → `{code}` ({note})")
         return
 
-    # --- STATUS Raspberry Pi ---
     if cmd == "STATUS":
         uptime = datetime.timedelta(seconds=int(time.time() - psutil.boot_time()))
         cpu_temp = 0.0
@@ -310,29 +333,29 @@ async def on_message(message):
         await message.channel.send(msg)
         return
 
-    # --- DEBUG USB ---
     if cmd == "DEBUG USB":
         try:
-            output = subprocess.check_output("dmesg | tail -10", shell=True, text=True)
+            output = subprocess.check_output("dmesg | tail -20", shell=True, text=True)
             await message.channel.send(f"🧩 **Derniers logs USB :**\n```{output}```")
         except Exception as e:
             await message.channel.send(f"⚠️ Erreur lecture logs : {e}")
         return
 
-    # --- REBOOT ---
     if cmd == "REBOOT":
-        await message.channel.send("🔄 Redémarrage du Pi...")
+        await message.channel.send("🔄 Redémarrage du Pi…")
         os.system("sudo reboot")
         return
 
 
 # -------------------------------------------------------------
-# 🚀 Lancement du bot
+# 🚀 START
 # -------------------------------------------------------------
 @client.event
 async def on_ready():
-    print(f"[ROVER] ✅ Connecté en tant que {client.user}")
-    await client.change_presence(activity=discord.Game("Rover prêt 🚗"))
+    log(f"[ROVER] ✅ Connecté en tant que {client.user}")
+
+    # ouvre série dès le départ
+    connect_arduino()
 
     loop = asyncio.get_event_loop()
     loop.create_task(serial_reader())

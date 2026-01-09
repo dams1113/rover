@@ -13,7 +13,8 @@ from flask import Flask, request, jsonify
 # ⚠️ Mets ici le NOM de ton fichier série SANS ".py"
 # Exemple : si ton fichier s'appelle "arduino.py" -> "arduino"
 #          si ton fichier s'appelle "arduino_serial.py" -> "arduino_serial"
-SERIAL_MODULE_NAME = "arduino"
+SERIAL_MODULE_NAME = "modules.arduino_link"
+
 
 LOCAL_TOKEN = "local-change-moi-12345"   # doit matcher ROVER_LOCAL_TOKEN côté ai_rover
 HOST = "127.0.0.1"

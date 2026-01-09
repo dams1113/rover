@@ -27,6 +27,10 @@ PORT = 5055
 _last_lines = deque(maxlen=50)
 _last_lock = threading.Lock()
 
+# === AJOUT DU DOSSIER PROJET AU PYTHONPATH ===
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 # =========================
 # IMPORT MODULE SERIE

@@ -1,21 +1,47 @@
 from __future__ import annotations
-from flask import Flask, request, jsonify
+
 import time
 import threading
+import importlib
 from collections import deque
+from flask import Flask, request, jsonify
 
-# 👉 Import de TON module série (celui que tu m'as montré)
-# Mets ici le bon nom de fichier, ex: import arduino_link as arduino
-import arduino as arduino  # <-- CHANGE "arduino" selon le nom réel de ton fichier
 
-APP = Flask(__name__)
+# =========================
+# CONFIG
+# =========================
+# ⚠️ Mets ici le NOM de ton fichier série SANS ".py"
+# Exemple : si ton fichier s'appelle "arduino.py" -> "arduino"
+#          si ton fichier s'appelle "arduino_serial.py" -> "arduino_serial"
+SERIAL_MODULE_NAME = "arduino"
 
-LOCAL_TOKEN = "local-change-moi-12345"  # doit matcher ROVER_LOCAL_TOKEN côté ai_rover
+LOCAL_TOKEN = "local-change-moi-12345"   # doit matcher ROVER_LOCAL_TOKEN côté ai_rover
+HOST = "127.0.0.1"
 PORT = 5055
 
-# buffer télémétrie (optionnel)
+# Buffer télémétrie (optionnel)
 _last_lines = deque(maxlen=50)
 _last_lock = threading.Lock()
+
+
+# =========================
+# IMPORT MODULE SERIE
+# =========================
+arduino = importlib.import_module(SERIAL_MODULE_NAME)
+
+# Vérifs pour éviter les surprises
+for fn in ("send_cmd", "read_line", "is_connected"):
+    if not hasattr(arduino, fn):
+        raise RuntimeError(
+            f"Le module série '{SERIAL_MODULE_NAME}' ne contient pas '{fn}'. "
+            f"Vérifie SERIAL_MODULE_NAME et le contenu de ton fichier."
+        )
+
+
+# =========================
+# FLASK APP
+# =========================
+APP = Flask(__name__)
 
 
 def _auth_ok(req) -> bool:
@@ -44,9 +70,12 @@ def _clamp_power(p) -> int:
 
 def _to_arduino_line(cmd: str, power: int) -> str:
     """
-    ⚠️ Adapte ici le protocole texte EXACT attendu par ton firmware.
-    D'après ton code Arduino: "forward", "backward", "turn left", "turn right", "stop"
-    et la notion power existe.
+    Protocole texte Arduino (d'après ton firmware SunFounder) :
+      - stop
+      - forward <power>
+      - backward <power>
+      - turn left <power>
+      - turn right <power>
     """
     if cmd == "STOP":
         return "stop"
@@ -63,7 +92,12 @@ def _to_arduino_line(cmd: str, power: int) -> str:
 
 @APP.route("/health", methods=["GET"])
 def health():
-    return jsonify(ok=True, connected=arduino.is_connected(), ts=time.time())
+    return jsonify(
+        ok=True,
+        connected=arduino.is_connected(),
+        ts=time.time(),
+        serial_module=SERIAL_MODULE_NAME,
+    )
 
 
 @APP.route("/telemetry/last", methods=["GET"])
@@ -89,14 +123,29 @@ def motor():
     # convertir en ligne série firmware
     line = _to_arduino_line(cmd, power)
     if not line:
-        return jsonify(ok=False, error="bad_cmd", allowed=["FORWARD","BACK","LEFT","RIGHT","STOP"]), 400
+        return jsonify(
+            ok=False,
+            error="bad_cmd",
+            allowed=["FORWARD", "BACK", "LEFT", "RIGHT", "STOP"]
+        ), 400
 
-    ok = arduino.send_cmd(line)
-    return jsonify(ok=True, sent=ok, cmd=cmd, power=power, line=line), (200 if ok else 503)
+    sent = arduino.send_cmd(line)
+    return jsonify(ok=True, sent=sent, cmd=cmd, power=power, line=line), (200 if sent else 503)
+
+
+# STOP d'urgence (optionnel mais pratique)
+@APP.route("/stop", methods=["POST"])
+def emergency_stop():
+    if not _auth_ok(request):
+        return jsonify(ok=False, error="unauthorized"), 401
+
+    line = "stop"
+    sent = arduino.send_cmd(line)
+    return jsonify(ok=True, sent=sent, cmd="STOP", line=line), (200 if sent else 503)
 
 
 def _telemetry_collector():
-    """Optionnel : stocke les lignes lues depuis l'Arduino pour /telemetry/last."""
+    """Stocke les lignes lues depuis l'Arduino pour /telemetry/last."""
     while True:
         try:
             line = arduino.read_line()
@@ -104,18 +153,17 @@ def _telemetry_collector():
                 with _last_lock:
                     _last_lines.appendleft(line)
         except Exception:
+            # on ignore pour ne pas tuer le thread
             pass
         time.sleep(0.1)
 
 
 def main():
-    # démarre le reader Discord si tu veux (facultatif)
-    # arduino.start_reader()
-
-    # thread qui collecte la télémétrie pour l'API
+    # Thread qui collecte la télémétrie pour l'API
     threading.Thread(target=_telemetry_collector, daemon=True).start()
 
-    APP.run(host="127.0.0.1", port=PORT, threaded=True)
+    # Serveur HTTP local uniquement
+    APP.run(host=HOST, port=PORT, threaded=True)
 
 
 if __name__ == "__main__":
